@@ -1,5 +1,12 @@
 #include "InlineCurrentSense.h"
 #include "communication/SimpleFOCDebug.h"
+
+#include "master/master_config.h"
+
+#if MASTER_CONTROL_TIMING_DIAG_ENABLED
+extern "C" void recordMasterTimingCurrentSenseUs(uint32_t duration_us) __attribute__((weak));
+#endif
+
 // InlineCurrentSensor constructor
 //  - shunt_resistor  - shunt resistor value
 //  - gain  - current-sense op-amp gain
@@ -74,10 +81,18 @@ void InlineCurrentSense::calibrateOffsets(){
 
 // read all three phase currents (if possible 2 or 3)
 PhaseCurrent_s InlineCurrentSense::getPhaseCurrents(){
+#if MASTER_CONTROL_TIMING_DIAG_ENABLED
+    const uint32_t read_start_us = _micros();
+#endif
     PhaseCurrent_s current;
     current.a = (!_isset(pinA)) ? 0 : (_readADCVoltageInline(pinA, params) - offset_ia)*gain_a;// amps
     current.b = (!_isset(pinB)) ? 0 : (_readADCVoltageInline(pinB, params) - offset_ib)*gain_b;// amps
     current.c = (!_isset(pinC)) ? 0 : (_readADCVoltageInline(pinC, params) - offset_ic)*gain_c; // amps
+#if MASTER_CONTROL_TIMING_DIAG_ENABLED
+    if (recordMasterTimingCurrentSenseUs) {
+        recordMasterTimingCurrentSenseUs(_micros() - read_start_us);
+    }
+#endif
     return current;
 }
 
