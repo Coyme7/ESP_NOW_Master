@@ -13,7 +13,7 @@
 
 // 主机 ESP-NOW 传输模块。
 // 这里是无线包进出的唯一位置：主机发送 MasterCommandPacket，接收 SlaveTelemetryPacket。
-// 控制任务不直接调用 ESP-NOW，避免无线栈时序影响 125us / 8kHz 力反馈路径。
+// 控制任务不直接调用 ESP-NOW，避免无线栈时序影响 200us / 5kHz 力反馈路径。
 
 namespace {
 
@@ -150,14 +150,16 @@ void sendMasterCommand(uint32_t seq, uint32_t now_us) {
     sysData.link.pen_down = readMasterPenButtonDown();
 #endif
 
-    // 如果已经收到过遥测但之后超时，则锁存遥测超时故障。
+    // 如果已经收到过遥测但之后超时，则锁存遥测超时故障，并在本周期 active_faults 中暴露。
+    uint16_t active_faults = FAULT_NONE;
     if (sysData.link.last_telemetry_seq != 0 &&
         now_us - sysData.link.last_rx_us > TELEMETRY_TIMEOUT_US) {
+        active_faults |= FAULT_TELEMETRY_TIMEOUT;
         addLocalFault(FAULT_TELEMETRY_TIMEOUT);
     }
 
     // 发布当前本机故障视图；FAULT_NONE 不会清除已锁存故障。
-    publishProtocolFaults(FAULT_NONE);
+    publishProtocolFaults(active_faults);
 
     // 协议包只携带归一化坐标和落笔状态，不携带电机角度、电流或硬件细节。
     MasterCommandPacket packet =

@@ -2,13 +2,14 @@
 
 #include <Arduino.h>
 
+#include "common/protocol/protocol_units.h"
 #include "common/system_state.h"
 #include "master/config/master_config.h"
 #include "master/hardware/master_encoder_hw.h"
 #include "master/tasks/master_tasks.h"
 #include "master/comm/master_transport.h"
 
-// 低频状态行输出。这里可以 Serial 打印，因为它运行在状态任务，不在 8kHz 控制热路径。
+// 低频状态行输出。这里可以 Serial 打印，因为它运行在状态任务，不在 5kHz 控制热路径。
 // 状态行是低频观测窗口：字段多是为了调试，不代表这些值都参与实时控制。
 void printMasterStatusLine() {
     const MasterCommandPacket command = snapshotMasterCommand();
@@ -23,6 +24,12 @@ void printMasterStatusLine() {
     uint8_t encoder_status = 0;
     getMasterEncoderDiagnostics(encoder_frame, encoder_raw, encoder_status);
 
+    const uint32_t ack_lag = static_cast<uint32_t>(command.seq - telemetry.ack_seq);
+    const float sync_err_pct = sysData.master.x_pos - sysData.slave.x_pos;
+    const float sync_err_mm = (sync_err_pct * 0.01f) * PLOT_X_HALF_RANGE_MM;
+    const uint16_t active_faults = getActiveFaultFlags();
+    const uint16_t latched_faults = getLatchedFaultFlags();
+
 #if MASTER_CONTROL_HEALTH_DIAG_ENABLED || MASTER_CONTROL_TIMING_DIAG_ENABLED
     const MasterControlHealthSnapshot health = getMasterControlHealthSnapshot();
 #endif
@@ -31,14 +38,19 @@ void printMasterStatusLine() {
 #endif
 
 #if MASTER_CONTROL_TIMING_DIAG_ENABLED
-    Serial.printf("[Master] tx=%lu ack=%lu angle=%.2fdeg raw=%u stat=0x%01x frame=0x%06lx x=%.1f%% current=%.3fA iq=%.3fA id=%.3fA vq=%.3fV vd=%.3fV ctrl_dt=%luus ctrl_max=%luus overC1_5=%lu overC2=%lu ctrl_miss=%lu t_us ctrl=%lu/%lu/%lu logic=%lu/%lu/%lu motor=%lu/%lu/%lu move=%lu/%lu/%lu foc=%lu/%lu/%lu cs=%lu/%lu/%lu spi=%lu/%lu/%lu pen=%u slave_x=%.1f%% age=%lums send=%lu/%lu rx=%lu/%lu last=%u faults=0x%04x\n",
+    Serial.printf("[Master] tx=%lu ack=%lu ack_lag=%lu angle=%.2fdeg raw=%u stat=0x%01x frame=0x%06lx x=%.1f%% x_norm=%.3f sync_err=%.1f%%/%.1fmm wall_state=%u current=%.3fA iq=%.3fA id=%.3fA vq=%.3fV vd=%.3fV ctrl_dt=%luus ctrl_max=%luus overC1_5=%lu overC2=%lu ctrl_miss=%lu t_us ctrl=%lu/%lu/%lu logic=%lu/%lu/%lu motor=%lu/%lu/%lu move=%lu/%lu/%lu foc=%lu/%lu/%lu cs=%lu/%lu/%lu spi=%lu/%lu/%lu pen=%u slave_x=%.1f%% age=%lums send=%lu/%lu rx=%lu/%lu last=%u active_faults=0x%04x latched_faults=0x%04x faults=0x%04x\n",
                   static_cast<unsigned long>(command.seq),
                   static_cast<unsigned long>(telemetry.ack_seq),
+                  static_cast<unsigned long>(ack_lag),
                   sysData.master.angle_deg,
                   static_cast<unsigned int>(encoder_raw),
                   static_cast<unsigned int>(encoder_status),
                   static_cast<unsigned long>(encoder_frame),
                   sysData.master.x_pos,
+                  normToUnit(command.x_norm),
+                  sync_err_pct,
+                  sync_err_mm,
+                  sysData.master.boundary_hit ? 1 : 0,
                   sysData.master.target_current_a,
                   sysData.master.current_q_a,
                   sysData.master.current_d_a,
@@ -78,16 +90,23 @@ void printMasterStatusLine() {
                   static_cast<unsigned long>(sysData.link.espnow_recv_ok_count),
                   static_cast<unsigned long>(sysData.link.espnow_recv_reject_count),
                   static_cast<unsigned int>(sysData.link.last_send_ok),
+                  static_cast<unsigned int>(active_faults),
+                  static_cast<unsigned int>(latched_faults),
                   static_cast<unsigned int>(sysData.link.protocol_fault_flags));
 #elif MASTER_CONTROL_HEALTH_DIAG_ENABLED
-    Serial.printf("[Master] tx=%lu ack=%lu angle=%.2fdeg raw=%u stat=0x%01x frame=0x%06lx x=%.1f%% current=%.3fA iq=%.3fA id=%.3fA vq=%.3fV vd=%.3fV ctrl_dt=%luus ctrl_max=%luus overC1_5=%lu overC2=%lu ctrl_miss=%lu pen=%u slave_x=%.1f%% age=%lums send=%lu/%lu rx=%lu/%lu last=%u faults=0x%04x\n",
+    Serial.printf("[Master] tx=%lu ack=%lu ack_lag=%lu angle=%.2fdeg raw=%u stat=0x%01x frame=0x%06lx x=%.1f%% x_norm=%.3f sync_err=%.1f%%/%.1fmm wall_state=%u current=%.3fA iq=%.3fA id=%.3fA vq=%.3fV vd=%.3fV ctrl_dt=%luus ctrl_max=%luus overC1_5=%lu overC2=%lu ctrl_miss=%lu pen=%u slave_x=%.1f%% age=%lums send=%lu/%lu rx=%lu/%lu last=%u active_faults=0x%04x latched_faults=0x%04x faults=0x%04x\n",
                   static_cast<unsigned long>(command.seq),
                   static_cast<unsigned long>(telemetry.ack_seq),
+                  static_cast<unsigned long>(ack_lag),
                   sysData.master.angle_deg,
                   static_cast<unsigned int>(encoder_raw),
                   static_cast<unsigned int>(encoder_status),
                   static_cast<unsigned long>(encoder_frame),
                   sysData.master.x_pos,
+                  normToUnit(command.x_norm),
+                  sync_err_pct,
+                  sync_err_mm,
+                  sysData.master.boundary_hit ? 1 : 0,
                   sysData.master.target_current_a,
                   sysData.master.current_q_a,
                   sysData.master.current_d_a,
@@ -106,16 +125,23 @@ void printMasterStatusLine() {
                   static_cast<unsigned long>(sysData.link.espnow_recv_ok_count),
                   static_cast<unsigned long>(sysData.link.espnow_recv_reject_count),
                   static_cast<unsigned int>(sysData.link.last_send_ok),
+                  static_cast<unsigned int>(active_faults),
+                  static_cast<unsigned int>(latched_faults),
                   static_cast<unsigned int>(sysData.link.protocol_fault_flags));
 #else
-    Serial.printf("[Master] tx=%lu ack=%lu angle=%.2fdeg raw=%u stat=0x%01x frame=0x%06lx x=%.1f%% current=%.3fA iq=%.3fA id=%.3fA vq=%.3fV vd=%.3fV pen=%u slave_x=%.1f%% age=%lums send=%lu/%lu rx=%lu/%lu last=%u faults=0x%04x\n",
+    Serial.printf("[Master] tx=%lu ack=%lu ack_lag=%lu angle=%.2fdeg raw=%u stat=0x%01x frame=0x%06lx x=%.1f%% x_norm=%.3f sync_err=%.1f%%/%.1fmm wall_state=%u current=%.3fA iq=%.3fA id=%.3fA vq=%.3fV vd=%.3fV pen=%u slave_x=%.1f%% age=%lums send=%lu/%lu rx=%lu/%lu last=%u active_faults=0x%04x latched_faults=0x%04x faults=0x%04x\n",
                   static_cast<unsigned long>(command.seq),
                   static_cast<unsigned long>(telemetry.ack_seq),
+                  static_cast<unsigned long>(ack_lag),
                   sysData.master.angle_deg,
                   static_cast<unsigned int>(encoder_raw),
                   static_cast<unsigned int>(encoder_status),
                   static_cast<unsigned long>(encoder_frame),
                   sysData.master.x_pos,
+                  normToUnit(command.x_norm),
+                  sync_err_pct,
+                  sync_err_mm,
+                  sysData.master.boundary_hit ? 1 : 0,
                   sysData.master.target_current_a,
                   sysData.master.current_q_a,
                   sysData.master.current_d_a,
@@ -129,6 +155,8 @@ void printMasterStatusLine() {
                   static_cast<unsigned long>(sysData.link.espnow_recv_ok_count),
                   static_cast<unsigned long>(sysData.link.espnow_recv_reject_count),
                   static_cast<unsigned int>(sysData.link.last_send_ok),
+                  static_cast<unsigned int>(active_faults),
+                  static_cast<unsigned int>(latched_faults),
                   static_cast<unsigned int>(sysData.link.protocol_fault_flags));
 #endif
 }

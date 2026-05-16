@@ -127,68 +127,69 @@ float computeCenterDampingCurrent(float filtered_velocity_deg_s) {
 #endif
 }
 
-// 边界状态机：原始角度用于安全判断，滤波角度用于墙深度计算。
-BoundaryCurrentResult computeBoundaryCurrent(float raw_angle_deg,
-                                             float wall_angle_deg,
+// 边界状态机：原始纸面位置用于安全判断，滤波纸面位置用于墙深度计算。
+BoundaryCurrentResult computeBoundaryCurrent(float raw_x_mm,
+                                             float wall_x_mm,
                                              float filtered_velocity_deg_s,
                                              int8_t &wall_contact_side) {
     // 默认认为不在墙区；后续按“安全切断 -> 越界回推 -> 墙区迟滞”的优先级逐层覆盖。
     BoundaryCurrentResult result = {0.0f, false, false, false};
 
     // 最高优先级：超过安全切断距离时不再输出回推电流，而是立即归零并请求上层 reset。
-    if (raw_angle_deg > kMasterXAxis.max_deg + MASTER_HAPTIC_OVERRUN_CUT_DEG ||
-        raw_angle_deg < kMasterXAxis.min_deg - MASTER_HAPTIC_OVERRUN_CUT_DEG) {
+    if (raw_x_mm > MASTER_PAPER_WALL_SAFETY_CUT_MM ||
+        raw_x_mm < -MASTER_PAPER_WALL_SAFETY_CUT_MM) {
         wall_contact_side = 0;
         result.safety_cut = true;
         return result;
     }
 
     // 第二优先级：轻微越过硬边界时给满墙电流，把旋钮推回可用范围。
-    if (raw_angle_deg > kMasterXAxis.max_deg) {
+    if (raw_x_mm > MASTER_PAPER_WALL_HARD_LIMIT_MM) {
         wall_contact_side = 1;
         result.overrun_pushback = true;
         result.target_current_a = wallCurrentForSide(1, 1.0f);
         return result;
     }
-    if (raw_angle_deg < kMasterXAxis.min_deg) {
+    if (raw_x_mm < -MASTER_PAPER_WALL_HARD_LIMIT_MM) {
         wall_contact_side = -1;
         result.overrun_pushback = true;
         result.target_current_a = wallCurrentForSide(-1, 1.0f);
         return result;
     }
 
-    const float wall_zone_deg = fmaxf(kMasterXAxis.boundary_soft_zone_deg, 0.0f);
-    if (wall_zone_deg <= 0.0f) {
+    const float wall_zone_mm =
+        fmaxf(MASTER_PAPER_WALL_HARD_LIMIT_MM - MASTER_PAPER_WALL_START_MM, 0.0f);
+    if (wall_zone_mm <= 0.0f) {
         wall_contact_side = 0;
         return result;
     }
 
-    const float release_hyst_deg = fmaxf(MASTER_HAPTIC_WALL_RELEASE_HYST_DEG, 0.0f);
-    const float high_wall_start = kMasterXAxis.max_deg - wall_zone_deg;
-    const float low_wall_end = kMasterXAxis.min_deg + wall_zone_deg;
-    const float high_wall_release = high_wall_start - release_hyst_deg;
-    const float low_wall_release = low_wall_end + release_hyst_deg;
+    const float release_hyst_mm = fmaxf(MASTER_PAPER_WALL_RELEASE_HYST_MM, 0.0f);
+    const float high_wall_start = MASTER_PAPER_WALL_START_MM;
+    const float low_wall_start = -MASTER_PAPER_WALL_START_MM;
+    const float high_wall_release = high_wall_start - release_hyst_mm;
+    const float low_wall_release = low_wall_start + release_hyst_mm;
 
     // Schmitt 迟滞：已接触墙时用 release 阈值退出，未接触时用 start 阈值进入。
     int8_t side = 0;
     if (wall_contact_side > 0) {
-        side = (raw_angle_deg < high_wall_release) ? 0 : 1;
+        side = (raw_x_mm < high_wall_release) ? 0 : 1;
     } else if (wall_contact_side < 0) {
-        side = (raw_angle_deg > low_wall_release) ? 0 : -1;
-    } else if (raw_angle_deg > high_wall_start) {
+        side = (raw_x_mm > low_wall_release) ? 0 : -1;
+    } else if (raw_x_mm > high_wall_start) {
         side = 1;
-    } else if (raw_angle_deg < low_wall_end) {
+    } else if (raw_x_mm < low_wall_start) {
         side = -1;
     }
     wall_contact_side = side;
 
     result.wall_contact = side != 0;
-    // 墙深度使用滤波角度，墙状态使用原始角度，从而兼顾安全响应和手感稳定。
+    // 墙深度使用滤波纸面位置，墙状态使用原始纸面位置，从而兼顾安全响应和手感稳定。
     if (result.wall_contact) {
         const float wall_depth_unit =
             (side > 0)
-                ? ((wall_angle_deg - high_wall_start) / wall_zone_deg)
-                : ((low_wall_end - wall_angle_deg) / wall_zone_deg);
+                ? ((wall_x_mm - high_wall_start) / wall_zone_mm)
+                : ((low_wall_start - wall_x_mm) / wall_zone_mm);
         const float wall_current_a =
             wallCurrentForSide(side, fastWallHardeningCurve(wall_depth_unit));
         const float damping_current_a =
@@ -211,21 +212,21 @@ MasterHapticEngineOutput computeMasterHapticCommand(MasterHapticEngineState &sta
 #elif MASTER_CURRENT_ZERO_CURRENT_SMOKE_TEST
     output.target_current_a = 0.0f;
 #else
-    if (!state.has_filtered_wall_angle) {
-        state.filtered_wall_angle_deg = input.control_angle_deg;
-        state.has_filtered_wall_angle = true;
+    if (!state.has_filtered_wall_x) {
+        state.filtered_wall_x_mm = input.x_mm;
+        state.has_filtered_wall_x = true;
     } else {
-        state.filtered_wall_angle_deg =
-            lowPassFilter(input.control_angle_deg,
-                          state.filtered_wall_angle_deg,
+        state.filtered_wall_x_mm =
+            lowPassFilter(input.x_mm,
+                          state.filtered_wall_x_mm,
                           input.dt_s,
-                          MASTER_HAPTIC_WALL_ANGLE_LPF_TF_S);
+                          MASTER_HAPTIC_PAPER_WALL_LPF_TF_S);
     }
 
     const float damping_current_a = computeCenterDampingCurrent(input.filtered_velocity_deg_s);
     const BoundaryCurrentResult boundary_current =
-        computeBoundaryCurrent(input.control_angle_deg,
-                               state.filtered_wall_angle_deg,
+        computeBoundaryCurrent(input.x_mm,
+                               state.filtered_wall_x_mm,
                                input.filtered_velocity_deg_s,
                                state.wall_contact_side);
 

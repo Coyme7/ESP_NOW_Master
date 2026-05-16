@@ -3,11 +3,9 @@
 #include "master/config/master_build_options.h"
 
 // 强力矩档虚拟墙软区宽度，单位 deg。
-// 例如 max=90deg、soft_zone=1.5deg，则高端墙从 88.5deg 开始渐硬。
-// 值越小：墙更突然、更硬，但更容易把角度抖动放大成振动。
-// 值越大：入口更平滑，但墙感会更早出现。
+// 该字段保留给轴配置和状态说明；当前墙力计算改为纸面毫米边界。
 #ifndef MASTER_STRONG_TORQUE_BOUNDARY_SOFT_ZONE_DEG
-#define MASTER_STRONG_TORQUE_BOUNDARY_SOFT_ZONE_DEG 1.5f
+#define MASTER_STRONG_TORQUE_BOUNDARY_SOFT_ZONE_DEG 6.6f
 #endif
 
 // 强力矩档力反馈电流上限，单位 A。
@@ -57,18 +55,33 @@
 #define MASTER_STRONG_TORQUE_CURRENT_LPF_TF 0.001f
 #endif
 
-// 虚拟墙角度低通时间常数，单位 s。
+// 纸面虚拟墙位置低通时间常数，单位 s。
 // 只用于墙深度/墙接触判断的轻微滤波，不用于安全切断。
 // 作用：抑制边界处角度噪声导致的墙电流细碎抖动。
-#ifndef MASTER_HAPTIC_WALL_ANGLE_LPF_TF_S
-#define MASTER_HAPTIC_WALL_ANGLE_LPF_TF_S 0.002f
+#ifndef MASTER_HAPTIC_PAPER_WALL_LPF_TF_S
+#define MASTER_HAPTIC_PAPER_WALL_LPF_TF_S 0.002f
 #endif
 
-// 虚拟墙释放迟滞，单位 deg。
+// 纸面虚拟墙开始变硬位置，单位 mm。
+// 当前 X 单轴画幅半宽 125mm，120mm 开始渐硬。
+#ifndef MASTER_PAPER_WALL_START_MM
+#define MASTER_PAPER_WALL_START_MM 120.0f
+#endif
+
+// 纸面硬边界，单位 mm。x_norm=+/-1 对应 +/-125mm。
+#ifndef MASTER_PAPER_WALL_HARD_LIMIT_MM
+#define MASTER_PAPER_WALL_HARD_LIMIT_MM 125.0f
+#endif
+
+// 纸面安全切断边界，单位 mm。超过该距离立即卸载目标电流并请求 PID reset。
+#ifndef MASTER_PAPER_WALL_SAFETY_CUT_MM
+#define MASTER_PAPER_WALL_SAFETY_CUT_MM 130.0f
+#endif
+
+// 纸面虚拟墙释放迟滞，单位 mm。
 // 进入墙区后，必须退出到更内侧一点才释放墙接触状态。
-// 作用：避免角度在墙边界附近来回穿越时反复开关墙电流。
-#ifndef MASTER_HAPTIC_WALL_RELEASE_HYST_DEG
-#define MASTER_HAPTIC_WALL_RELEASE_HYST_DEG 0.20f
+#ifndef MASTER_PAPER_WALL_RELEASE_HYST_MM
+#define MASTER_PAPER_WALL_RELEASE_HYST_MM 1.0f
 #endif
 
 // 墙内最小贴墙电流，单位 A。
@@ -123,9 +136,8 @@
 #define MASTER_CENTER_DAMPING_DIRECTION_SIGN -1
 #endif
 
-// 安全切断距离，单位 deg。
-// 当角度超过 min/max 外侧该距离后，目标电流立即归零，避免持续越界输出。
-// 这是安全保护，不是正常墙感的一部分。
+// 旧角度墙安全切断距离，单位 deg。
+// 当前纸面墙使用 MASTER_PAPER_WALL_SAFETY_CUT_MM；该宏仅保留给外部旧 build_flags 兼容。
 #ifndef MASTER_HAPTIC_OVERRUN_CUT_DEG
 #define MASTER_HAPTIC_OVERRUN_CUT_DEG 10.0f
 #endif
@@ -191,4 +203,3 @@
 #ifndef MASTER_CENTER_DAMPING_LIMIT_A
 #define MASTER_CENTER_DAMPING_LIMIT_A 0.050f
 #endif
-

@@ -13,7 +13,7 @@
 
 // 主机控制模块。
 // 数据流：角度输入 -> 纯算法力反馈 -> 电流请求状态机 -> sysData 监视状态 -> 硬件输出。
-// 注意：这里运行在 125us / 8kHz 控制热路径，不能加入串口、ESP-NOW、动态内存或长时间等待。
+// 注意：这里运行在 200us / 5kHz 控制热路径，不能加入串口、ESP-NOW、动态内存或长时间等待。
 
 namespace {
 
@@ -57,7 +57,7 @@ uint8_t currentTargetMode() {
 
 }  // namespace
 
-// 8kHz 控制热路径入口。所有耗时操作都应提前放到低频任务或启动阶段。
+// 5kHz 控制热路径入口。所有耗时操作都应提前放到低频任务或启动阶段。
 void runMasterControlStep(float dt_s) {
 #if MASTER_CONTROL_TIMING_DIAG_ENABLED
     const uint32_t control_start_us = micros();
@@ -74,6 +74,8 @@ void runMasterControlStep(float dt_s) {
     const MasterHapticEngineInput haptic_input = {
         axis.control_angle_deg,
         axis.filtered_velocity_deg_s,
+        normToUnit(axis.x_norm),
+        normToUnit(axis.x_norm) * PLOT_X_HALF_RANGE_MM,
         dt_s,
     };
     const MasterHapticEngineOutput haptic_output =
@@ -118,4 +120,3 @@ void runMasterControlStep(float dt_s) {
     // 这样控制逻辑仍可运行，方便第一阶段验证状态和通信。
     runMasterMotorOutput(current_output.current_command_a);
 }
-

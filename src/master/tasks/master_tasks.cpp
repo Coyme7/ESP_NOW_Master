@@ -100,7 +100,7 @@ void IRAM_ATTR controlTimerCallback(void *arg) {
 #endif
 }
 
-// 创建并启动周期定时器，为控制任务提供 125us 节拍。
+// 创建并启动周期定时器，为控制任务提供 200us 节拍。
 bool startControlTimer() {
     if (controlTimerHandle != nullptr) {
         return true;
@@ -116,7 +116,7 @@ bool startControlTimer() {
     timer_args.dispatch_method = ESP_TIMER_TASK;
     const char *dispatch_name = "task";
 #endif
-    timer_args.name = "MasterCtrl8k";
+    timer_args.name = "MasterCtrl5k";
     timer_args.skip_unhandled_events = true;
 
     esp_err_t err = esp_timer_create(&timer_args, &controlTimerHandle);
@@ -171,7 +171,7 @@ void task_control_loop(void *pvParameters) {
 #endif
 
         const uint32_t now_us = micros();
-        // dt 使用实际到达时间计算，而不是固定 125us，便于在偶发抖动时让滤波/斜率按真实时间工作。
+        // dt 使用实际到达时间计算，而不是固定 200us，便于在偶发抖动时让滤波/斜率按真实时间工作。
         const uint32_t dt_us = now_us - previous_us;
         previous_us = now_us;
 
@@ -207,7 +207,7 @@ void task_comm_loop(void *pvParameters) {
     while (true) {
         processMasterTelemetry();
         sendMasterCommand(seq++, micros());
-        vTaskDelay(pdMS_TO_TICKS(COMM_LOOP_PERIOD_MS));
+        vTaskDelay(pdMS_TO_TICKS(MASTER_COMMAND_PERIOD_MS));
     }
 }
 #endif

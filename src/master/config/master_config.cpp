@@ -8,9 +8,9 @@
 // center_deg：
 //   用于把 MT6701 的绝对角转换为以机械中位为 0 的控制角。
 // min_deg / max_deg：
-//   定义主机旋钮可映射到从机坐标的控制范围，同时也是虚拟墙边界。
+//   定义主机旋钮可映射到从机坐标的控制范围；纸面虚拟墙由 x_norm -> x_mm 计算。
 // boundary_soft_zone_deg：
-//   定义边界内侧渐硬区宽度。强力矩档使用更宽墙区，减小 89..90deg 附近的抖动敏感度。
+//   保留旧角度墙字段；当前墙力由纸面毫米边界计算。
 // haptic_current_limit_a：
 //   墙和越界回推最大 q 轴目标电流，决定最大墙硬度。
 // haptic_current_ramp_a_per_s：
@@ -19,14 +19,14 @@
 #if MASTER_USE_CURRENT_SENSE
 const MasterAxisConfig kMasterXAxis = {
     MASTER_KNOB_CENTER_DEG, // center_deg: 机械中位对应的 MT6701 绝对角，单位 deg。
-    -90.00f,               // min_deg: 主机控制/力反馈低端虚拟边界，单位 deg。
-    90.00f,                // max_deg: 主机控制/力反馈高端虚拟边界，单位 deg。
+    -MASTER_KNOB_HALF_RANGE_DEG, // min_deg: 主机 X 输入低端，单位 deg。
+    MASTER_KNOB_HALF_RANGE_DEG,  // max_deg: 主机 X 输入高端，单位 deg。
 #if MASTER_STRONG_TORQUE_TEST_ENABLED
     MASTER_STRONG_TORQUE_BOUNDARY_SOFT_ZONE_DEG, // 边界软墙区宽度；强力矩档下更早进入渐硬区。
     MASTER_STRONG_TORQUE_CURRENT_LIMIT_A,        // 力反馈电流上限；决定墙/越界回推最大力度。
     MASTER_STRONG_TORQUE_CURRENT_RAMP_A_PER_S,   // 力反馈目标电流斜率限制；限制入墙电流变化速度。
 #else
-    1.0f,                  // boundary_soft_zone_deg: 保守档墙接触区宽度，1 deg -> 89..90 deg 快速变硬。
+    MASTER_STRONG_TORQUE_BOUNDARY_SOFT_ZONE_DEG, // boundary_soft_zone_deg: 保留字段，当前墙力按纸面毫米计算。
     0.25f,                // haptic_current_limit_a: 保守档墙/回推最大 q 轴目标电流，单位 A。
     30.0f,                 // haptic_current_ramp_a_per_s: 保守档目标电流斜率限制。
 #endif
@@ -39,7 +39,7 @@ const MasterAxisConfig kMasterXAxis = {
     MASTER_KNOB_CENTER_DEG,       // center_deg: 机械中位对应的 MT6701 绝对角，单位 deg。
     -MASTER_KNOB_HALF_RANGE_DEG,  // min_deg: 电压模式联调低端边界，单位 deg。
     MASTER_KNOB_HALF_RANGE_DEG,   // max_deg: 电压模式联调高端边界，单位 deg。
-    30.0f,                       // boundary_soft_zone_deg: 电压模式宽软墙，便于低风险上板联调。
+    MASTER_STRONG_TORQUE_BOUNDARY_SOFT_ZONE_DEG, // boundary_soft_zone_deg: 保留字段，当前墙力按纸面毫米计算。
     0.020f,                      // haptic_current_limit_a: 输出目标上限；电压模式仍复用为安全限幅。
     2.4f,                        // haptic_current_ramp_a_per_s: 目标输出斜率限制。
 };

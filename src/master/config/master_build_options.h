@@ -46,7 +46,7 @@
 
 // 控制环分段耗时诊断开关。
 // 1：记录热路径中编码器读取、电流采样、loopFOC、总控制步等耗时，并低频输出。
-// 用途：验证 125us/8kHz 控制周期是否有余量。
+// 用途：验证 200us/5kHz 控制周期是否有余量。
 // 注意：诊断会调用 micros()，会有少量额外开销；正式手感测试可关闭。
 #ifndef MASTER_CONTROL_TIMING_DIAG_ENABLED
 #define MASTER_CONTROL_TIMING_DIAG_ENABLED 0
@@ -61,7 +61,7 @@
 
 // 控制环状态发布分频。
 // 控制任务仍按 MASTER_CONTROL_LOOP_PERIOD_US 高频运行；这里只降低 sysData 调试字段刷新频率。
-// 例如 10 表示控制 8kHz 时，调试状态约 800Hz 更新，减少跨任务共享数据写入压力。
+// 例如 10 表示控制 5kHz 时，调试状态约 500Hz 更新，减少跨任务共享数据写入压力。
 #ifndef MASTER_CONTROL_STATUS_PUBLISH_DIV
 #define MASTER_CONTROL_STATUS_PUBLISH_DIV 10
 #endif
@@ -92,7 +92,7 @@
 // 1：未接真实主机按钮/紫光灯控制输入时，固定发送 pen_down=1，便于验证主从通信链路。
 // 0：后续接入真实按钮后，改回由按钮状态控制 pen_down。
 #ifndef MASTER_FORCE_PEN_DOWN_FOR_TEST
-#define MASTER_FORCE_PEN_DOWN_FOR_TEST 1
+#define MASTER_FORCE_PEN_DOWN_FOR_TEST 0
 #endif
 
 // SimpleFOC 启动诊断日志开关。
@@ -115,4 +115,3 @@
 #ifndef MASTER_DEMO_QUADRATURE_ENABLED
 #define MASTER_DEMO_QUADRATURE_ENABLED 0
 #endif
-

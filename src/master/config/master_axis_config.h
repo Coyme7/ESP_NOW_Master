@@ -18,6 +18,11 @@
 #define MASTER_KNOB_CENTER_DEG 180.0f
 #endif
 
+// 主从同步测试时的协议坐标小死区，单位为 int16_t x_norm counts。
+#ifndef MASTER_X_NORM_DEADBAND_COUNTS
+#define MASTER_X_NORM_DEADBAND_COUNTS 64
+#endif
+
 // 临时正交编码器 A/B 相输入脚。
 // 只在 MASTER_DEMO_QUADRATURE_ENABLED=1 时使用；MT6701 正常路径不会访问这两个脚。
 static constexpr int MASTER_DEMO_ENCODER_PIN_A = board_pins_master::UNUSED_DPI_1;
@@ -32,8 +37,8 @@ struct MasterAxisConfig {
     float min_deg;                      // 控制/力反馈低端虚拟边界，单位 deg。
     // 控制/力反馈高端虚拟边界，单位 deg；高于该角度进入高端墙或越界保护。
     float max_deg;                      // 控制/力反馈高端虚拟边界，单位 deg。
-    // 边界内侧虚拟墙渐硬区宽度，单位 deg；值越大，越早开始变硬，入口越平滑。
-    float boundary_soft_zone_deg;       // 边界内侧墙接触区宽度，单位 deg。
+    // 旧角度墙软区宽度，单位 deg；当前纸面墙实际使用 master_haptic_config.h 中的 mm 参数。
+    float boundary_soft_zone_deg;       // 兼容字段，当前墙力按纸面毫米计算。
     // 墙/越界回推最大 q 轴目标电流，单位 A；决定墙的最大硬度。
     float haptic_current_limit_a;       // 墙/越界回推最大 q 轴目标电流，单位 A。
     // 目标电流斜率限制，单位 A/s；限制手感阶跃，降低边界细碎振动。
@@ -42,4 +47,3 @@ struct MasterAxisConfig {
 
 // 主机 X 轴配置实例；定义在 master_config.cpp。
 extern const MasterAxisConfig kMasterXAxis;
-

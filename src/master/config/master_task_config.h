@@ -2,10 +2,10 @@
 
 #include <Arduino.h>
 
-// 当前阶段主机控制周期为 125us / 8kHz。
+// 当前阶段主机控制周期为 200us / 5kHz。
 // 该值是主机本地任务节拍，不属于主从 common 协议契约。
-// 如果后续从 8kHz 改回 10kHz，应同步评估 sensor_spi、current_sense、loopFOC 总耗时。
-static constexpr uint32_t MASTER_CONTROL_LOOP_PERIOD_US = 125UL;
+// 如果后续提高频率，应同步评估 sensor_spi、current_sense、loopFOC 总耗时。
+static constexpr uint32_t MASTER_CONTROL_LOOP_PERIOD_US = 200UL;
 // 兼容旧代码中使用 CONTROL_LOOP_PERIOD_US 的位置，保持等价迁移。
 static constexpr uint32_t CONTROL_LOOP_PERIOD_US = MASTER_CONTROL_LOOP_PERIOD_US;
 
@@ -34,4 +34,3 @@ static constexpr uint32_t MASTER_CONTROL_TIMER_PERIOD_US = MASTER_CONTROL_LOOP_P
 // 控制定时器失联保护，单位 ms。
 // 超过该时间未收到控制通知时，应主动输出 0A 并锁存故障。
 static constexpr uint32_t MASTER_CONTROL_TIMER_TIMEOUT_MS = 10UL;
-

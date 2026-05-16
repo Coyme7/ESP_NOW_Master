@@ -33,6 +33,10 @@ struct SlaveDebugState {
     volatile float target_angle_rad;
     // 从机实际角度，单位 rad。
     volatile float actual_angle_rad;
+    // 从机命令纸面 X，单位 mm。
+    volatile float target_x_mm;
+    // 从机平滑后的纸面 X，单位 mm。
+    volatile float smooth_x_mm;
     volatile bool boundary_hit;
     // 从机 UV/落笔互锁是否阻止输出。
     volatile bool uv_interlock_blocked;
@@ -50,4 +54,3 @@ struct SharedData {
 
 // sysData 在 system_state.cpp 中定义，各模块通过 extern 访问同一个实例。
 extern SharedData sysData;
-

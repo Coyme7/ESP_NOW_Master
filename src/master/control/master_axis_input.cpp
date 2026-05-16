@@ -30,7 +30,13 @@ int16_t masterAxisAngleDegToNorm(float angle_deg) {
 
     const float limited = clampFloat(angle_deg, kMasterXAxis.min_deg, kMasterXAxis.max_deg);
     const float unit = ((limited - kMasterXAxis.min_deg) / span_deg) * 2.0f - 1.0f;
-    return unitToNorm(unit);
+    const int16_t norm = unitToNorm(unit);
+    const int deadband_counts =
+        (MASTER_X_NORM_DEADBAND_COUNTS > 0) ? MASTER_X_NORM_DEADBAND_COUNTS : 0;
+    if (norm >= -deadband_counts && norm <= deadband_counts) {
+        return 0;
+    }
+    return norm;
 }
 
 // 每个控制周期调用：计算控制角、滤波速度和 x_norm。
@@ -59,4 +65,3 @@ MasterAxisInputSample updateMasterAxisInput(MasterAxisInputState &state,
     sample.x_norm = masterAxisAngleDegToNorm(sample.clamped_angle_deg);
     return sample;
 }
-

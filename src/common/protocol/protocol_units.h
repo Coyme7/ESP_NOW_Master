@@ -9,13 +9,14 @@ static constexpr int16_t NORM_MIN = static_cast<int16_t>(-32767 - 1);
 static constexpr int16_t NORM_MAX = 32767;
 
 // 物理测试几何。协议包只传归一化坐标，不传电角度或编码器原始值。
-static constexpr float MASTER_KNOB_HALF_RANGE_DEG = 90.0f;
+static constexpr float MASTER_KNOB_HALF_RANGE_DEG = 165.0f;
 static constexpr float A4_WIDTH_MM = 210.0f;
 static constexpr float A4_HEIGHT_MM = 297.0f;
 static constexpr float PAPER_EDGE_MARGIN_MM = 10.0f;
-static constexpr float PLOT_X_HALF_RANGE_MM = (A4_WIDTH_MM * 0.5f) - PAPER_EDGE_MARGIN_MM;
+// 当前 X 单轴联调使用 250mm 画幅，中心两侧各 125mm。
+static constexpr float PLOT_X_HALF_RANGE_MM = 125.0f;
 static constexpr float PLOT_Y_HALF_RANGE_MM = (A4_HEIGHT_MM * 0.5f) - PAPER_EDGE_MARGIN_MM;
-static constexpr float DEFAULT_THROW_DISTANCE_MM = 700.0f;
+static constexpr float DEFAULT_THROW_DISTANCE_MM = 300.0f;
 
 // 把 [-1, 1] 的单位量映射到 int16_t；超界输入会被夹紧。
 inline int16_t unitToNorm(float unit) {
@@ -69,4 +70,3 @@ inline int16_t percentToNorm(float percent) {
 inline float normToPercent(int16_t norm) {
     return (static_cast<float>(norm) / static_cast<float>(NORM_MAX)) * 100.0f;
 }
-

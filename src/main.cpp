@@ -8,7 +8,7 @@
 // 主机固件入口。
 // 这个文件只负责“上电顺序”：初始化 Arduino 兼容层、串口、安全输出、硬件、ESP-NOW，
 // 最后再启动 FreeRTOS 任务。真正的控制、通信和状态打印都拆到 master/* 模块中，
-// 方便后续单独检查 125us / 8kHz 热路径和 Core 0 低频任务。
+// 方便后续单独检查 200us / 5kHz 热路径和 Core 0 低频任务。
 extern "C" void app_main() {
     // PlatformIO 当前使用 ESP-IDF 入口，因此需要显式启用 Arduino 运行时，
     // Serial、pinMode、digitalWrite、micros 等 Arduino API 才能正常使用。
@@ -24,7 +24,7 @@ extern "C" void app_main() {
     const bool motor_ready = setupMasterMotorHardware();
 
     // ESP-NOW 初始化在任务启动前完成；单机旋钮/电流环测试时默认关闭，避免 Wi-Fi
-    // 和发送失败回调干扰 125us / 8kHz 控制定时。
+    // 和发送失败回调干扰 200us / 5kHz 控制定时。
 #if MASTER_ESPNOW_ENABLED
     setupMasterEspNow();
     printMasterEspNowIdentity();
@@ -43,7 +43,7 @@ extern "C" void app_main() {
                   kMasterXAxis.min_deg,
                   kMasterXAxis.max_deg,
                   static_cast<unsigned long>(MASTER_CONTROL_LOOP_PERIOD_US),
-                  static_cast<unsigned long>(COMM_LOOP_PERIOD_MS),
+                  static_cast<unsigned long>(MASTER_COMMAND_PERIOD_MS),
                   kMasterMotorFoc.voltage_limit_v,
                   kMasterXAxis.haptic_current_limit_a);
 

@@ -6,7 +6,7 @@
 #include "master/hardware/master_encoder_hw.h"
 
 // 主机诊断模块共享的硬件上下文。
-// 诊断代码只在启动/显式诊断路径运行，不进入 125us / 8kHz 控制热路径。
+// 诊断代码只在启动/显式诊断路径运行，不进入 200us / 5kHz 控制热路径。
 // 诊断上下文用引用持有硬件对象，避免诊断函数依赖全局变量过多。
 struct MasterMotorDiagnosticsContext {
     BLDCMotor &motor;
