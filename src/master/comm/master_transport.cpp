@@ -166,6 +166,7 @@ void sendMasterCommand(uint32_t seq, uint32_t now_us) {
         buildMasterCommandPacket(seq,
                                  now_us,
                                  sysData.master.x_pos,
+                                 sysData.master.y_pos,
                                  sysData.link.pen_down,
                                  sysData.link.current_mode);
 

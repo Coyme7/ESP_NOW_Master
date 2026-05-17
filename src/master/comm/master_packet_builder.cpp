@@ -7,6 +7,7 @@
 MasterCommandPacket buildMasterCommandPacket(uint32_t seq,
                                              uint32_t now_us,
                                              float master_x_percent,
+                                             float master_y_percent,
                                              bool pen_down,
                                              uint8_t mode) {
     // 先清零整包，避免未显式赋值的保留字段携带栈上的随机值。
@@ -15,11 +16,10 @@ MasterCommandPacket buildMasterCommandPacket(uint32_t seq,
     packet.seq = seq;
     packet.timestamp_us = now_us;
     packet.x_norm = percentToNorm(master_x_percent);
-    packet.y_norm = 0;
+    packet.y_norm = percentToNorm(master_y_percent);
     packet.pen_down = pen_down ? 1 : 0;
     packet.mode = mode;
     // finalize 会写入协议字段和 checksum，必须在所有业务字段填完后调用。
     finalizeMasterCommand(packet);
     return packet;
 }
-

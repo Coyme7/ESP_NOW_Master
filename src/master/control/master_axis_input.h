@@ -19,10 +19,11 @@ struct MasterAxisInputSample {
     float filtered_velocity_deg_s;
     // 当前控制角映射到协议归一化 X 坐标。
     int16_t x_norm;
+    // 当前控制角映射到协议归一化 Y 坐标。默认 SingleX 下固定为 0。
+    int16_t y_norm;
 };
 
 int16_t masterAxisAngleDegToNorm(float angle_deg);
 MasterAxisInputSample updateMasterAxisInput(MasterAxisInputState &state,
                                             float control_angle_deg,
                                             float dt_s);
-

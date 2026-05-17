@@ -2,6 +2,62 @@
 
 #include <Arduino.h>
 
+// 主机同步测试模式。默认 SingleX：当前已验证旋钮控制 X，Y 坐标固定为 0。
+enum MasterSyncTestMode : uint8_t {
+    MASTER_MODE_SINGLE_X = 0,
+    MASTER_MODE_SINGLE_Y = 1,
+    MASTER_MODE_DUAL_XY = 2,
+};
+
+// 启用主机 X 旋钮真实硬件。默认开启，因为当前同步链路依赖已验证的 X 旋钮。
+#ifndef MASTER_X_KNOB_HW_ENABLED
+#define MASTER_X_KNOB_HW_ENABLED 1
+#endif
+
+// 启用主机 Y 旋钮真实硬件。默认关闭，避免未 bring-up 的第二旋钮影响 X 单轴同步。
+#ifndef MASTER_Y_KNOB_HW_ENABLED
+#define MASTER_Y_KNOB_HW_ENABLED 0
+#endif
+
+// 主机同步测试模式。SingleY 可复用当前已验证 X 旋钮，把输入写入 y_norm 进行 Y 轴 bring-up。
+#ifndef MASTER_SYNC_TEST_MODE
+#define MASTER_SYNC_TEST_MODE MASTER_MODE_SINGLE_X
+#endif
+
+// 主机真实力反馈输出开关。
+// 当前阶段人为开启，用于验证主机旋钮手感和边界力矩。
+// 风险：设为 1 会输出真实力矩，分析主从同步误差时必须在日志中明确标注 ffb=1。
+// 依赖：该开关只影响主机，不允许把主机力反馈策略搬到从机。
+#ifndef MASTER_FORCE_FEEDBACK_ENABLED
+#define MASTER_FORCE_FEEDBACK_ENABLED 1
+#endif
+
+// 日志、状态输出和 timing 诊断配置已经迁移到 master_log_config.h。
+// build_options 只保留会改变主机运行行为的模式、硬件和 bring-up 开关。
+
+// BLE 控制器模式预留开关。当前阶段不做 BLE，默认关闭且不得影响 ESP-NOW 同步链路。
+#ifndef MASTER_BLE_MODE_ENABLED
+#define MASTER_BLE_MODE_ENABLED 0
+#endif
+
+static_assert(MASTER_SYNC_TEST_MODE == MASTER_MODE_SINGLE_X ||
+                  MASTER_SYNC_TEST_MODE == MASTER_MODE_SINGLE_Y ||
+                  MASTER_SYNC_TEST_MODE == MASTER_MODE_DUAL_XY,
+              "invalid MASTER_SYNC_TEST_MODE");
+
+inline const char *masterSyncTestModeName() {
+    switch (MASTER_SYNC_TEST_MODE) {
+        case MASTER_MODE_SINGLE_X:
+            return "SingleX";
+        case MASTER_MODE_SINGLE_Y:
+            return "SingleY";
+        case MASTER_MODE_DUAL_XY:
+            return "DualXY";
+        default:
+            return "Unknown";
+    }
+}
+
 // 上板调试快速调参区。
 // 所有宏都用 #ifndef 包裹，允许 platformio.ini/build_flags 临时覆盖。
 
@@ -10,7 +66,7 @@
 // 1：初始化电机驱动、电流采样、编码器和 SimpleFOC，允许真实力反馈输出。
 // 安全建议：第一次上电或改硬件接线后，先设为 0 验证通信和状态输出。
 #ifndef MASTER_MOTOR_HW_ENABLED
-#define MASTER_MOTOR_HW_ENABLED 1
+#define MASTER_MOTOR_HW_ENABLED MASTER_X_KNOB_HW_ENABLED
 #endif
 
 // 力矩控制模式选择。
@@ -44,20 +100,8 @@
 #define MASTER_CURRENT_SENSE_DIAG_ONLY 0
 #endif
 
-// 控制环分段耗时诊断开关。
-// 1：记录热路径中编码器读取、电流采样、loopFOC、总控制步等耗时，并低频输出。
-// 用途：验证 200us/5kHz 控制周期是否有余量。
-// 注意：诊断会调用 micros()，会有少量额外开销；正式手感测试可关闭。
-#ifndef MASTER_CONTROL_TIMING_DIAG_ENABLED
-#define MASTER_CONTROL_TIMING_DIAG_ENABLED 0
-#endif
-
-// 轻量级控制环健康状态输出开关。
-// 默认跟随完整时序诊断开关，只输出 ctrl_dt / ctrl_max / overC / miss 等简短字段。
-// 用途：正常联调时用较短状态行观察是否漏周期、是否超时。
-#ifndef MASTER_CONTROL_HEALTH_DIAG_ENABLED
-#define MASTER_CONTROL_HEALTH_DIAG_ENABLED MASTER_CONTROL_TIMING_DIAG_ENABLED
-#endif
+// timing 诊断等级由 master_log_config.h 中的 MASTER_TIMING_DIAG_LEVEL 统一控制。
+// 这里只保留控制热路径共享状态发布分频。
 
 // 控制环状态发布分频。
 // 控制任务仍按 MASTER_CONTROL_LOOP_PERIOD_US 高频运行；这里只降低 sysData 调试字段刷新频率。
@@ -95,12 +139,10 @@
 #define MASTER_FORCE_PEN_DOWN_FOR_TEST 0
 #endif
 
-// SimpleFOC 启动诊断日志开关。
-// 1：输出 init/initFOC 阶段日志，便于查看驱动、电流采样、编码器初始化情况。
-// 注意：只允许出现在启动路径，不能进入高频控制热路径。
-#ifndef MASTER_SIMPLEFOC_DEBUG_ENABLED
-#define MASTER_SIMPLEFOC_DEBUG_ENABLED 1
-#endif
+static_assert(!(MASTER_FORCE_PEN_DOWN_FOR_TEST && MASTER_BLE_MODE_ENABLED),
+              "forced pen test and BLE mode should not be enabled together");
+
+// SimpleFOC 启动日志开关已经迁移到 master_log_config.h。
 
 // initFOC 前开环相位扫描诊断开关。
 // 1：用短时间低电压扫相，观察电机是否跟随、编码器角度是否变化。

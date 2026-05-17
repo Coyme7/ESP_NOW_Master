@@ -81,8 +81,10 @@ void runMasterControlStep(float dt_s) {
     const MasterHapticEngineOutput haptic_output =
         computeMasterHapticCommand(haptic_state, haptic_input);
 
+    const float requested_current_a =
+        MASTER_FORCE_FEEDBACK_ENABLED ? haptic_output.target_current_a : 0.0f;
     const MasterCurrentCommandInput current_input = {
-        haptic_output.target_current_a,
+        requested_current_a,
         dt_s,
         haptic_output.boundary_safety_cut,
         currentTargetMode(),
@@ -95,6 +97,7 @@ void runMasterControlStep(float dt_s) {
     }
 
     const float master_x_pos = normToPercent(axis.x_norm);
+    const float master_y_pos = normToPercent(axis.y_norm);
     const bool boundary_hit = updateBoundaryHitHold(haptic_output.boundary_active, dt_s);
 #if MASTER_CONTROL_STATUS_PUBLISH_DIV <= 1
     const bool publish_now = true;
@@ -109,6 +112,7 @@ void runMasterControlStep(float dt_s) {
         sysData.master.angle_deg = axis.control_angle_deg;
         sysData.master.target_current_a = current_output.current_command_a;
         sysData.master.x_pos = master_x_pos;
+        sysData.master.y_pos = master_y_pos;
         sysData.master.boundary_hit = boundary_hit;
     }
 

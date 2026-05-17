@@ -62,6 +62,29 @@ MasterAxisInputSample updateMasterAxisInput(MasterAxisInputState &state,
 
     sample.filtered_velocity_deg_s = state.filtered_velocity_deg_s;
     // 协议坐标使用限幅后的角度，确保发给从机的目标不会超过虚拟行程。
-    sample.x_norm = masterAxisAngleDegToNorm(sample.clamped_angle_deg);
+    const int16_t axis_norm = masterAxisAngleDegToNorm(sample.clamped_angle_deg);
+    switch (MASTER_SYNC_TEST_MODE) {
+        case MASTER_MODE_SINGLE_X:
+            sample.x_norm = axis_norm;
+            sample.y_norm = 0;
+            break;
+        case MASTER_MODE_SINGLE_Y:
+            sample.x_norm = 0;
+            sample.y_norm = axis_norm;
+            break;
+        case MASTER_MODE_DUAL_XY:
+            sample.x_norm = axis_norm;
+#if MASTER_Y_KNOB_HW_ENABLED
+            // TODO：第二旋钮硬件 bring-up 后在这里接入真实 Y 旋钮输入。
+            sample.y_norm = 0;
+#else
+            sample.y_norm = 0;
+#endif
+            break;
+        default:
+            sample.x_norm = axis_norm;
+            sample.y_norm = 0;
+            break;
+    }
     return sample;
 }

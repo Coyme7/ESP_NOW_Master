@@ -59,4 +59,3 @@ private:
     Mt6701SsiFrame last_;
     uint32_t last_read_duration_us_;
 };
-

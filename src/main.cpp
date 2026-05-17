@@ -27,10 +27,29 @@ extern "C" void app_main() {
     // 和发送失败回调干扰 200us / 5kHz 控制定时。
 #if MASTER_ESPNOW_ENABLED
     setupMasterEspNow();
+#if MASTER_ESPNOW_IDENTITY_LOG_ENABLED
     printMasterEspNowIdentity();
+#endif
 #else
+#if MASTER_BOOT_LOG_ENABLED
     Serial.println("[Master] espnow disabled for local knob/current test");
 #endif
+#endif
+
+#if MASTER_BOOT_LOG_ENABLED
+    Serial.printf("[MasterConfig] mode=%s x_knob_hw=%u y_knob_hw=%u force_pen=%u ffb=%u strong=%u ble=%u status_log=%u status_period=%lums timing_level=%u timing_step=%u timing_detail=%u\n",
+                  masterSyncTestModeName(),
+                  MASTER_X_KNOB_HW_ENABLED ? 1 : 0,
+                  MASTER_Y_KNOB_HW_ENABLED ? 1 : 0,
+                  MASTER_FORCE_PEN_DOWN_FOR_TEST ? 1 : 0,
+                  MASTER_FORCE_FEEDBACK_ENABLED ? 1 : 0,
+                  MASTER_STRONG_TORQUE_TEST_ENABLED ? 1 : 0,
+                  MASTER_BLE_MODE_ENABLED ? 1 : 0,
+                  MASTER_STATUS_LOG_ENABLED ? 1 : 0,
+                  static_cast<unsigned long>(MASTER_STATUS_LOOP_PERIOD_MS),
+                  MASTER_TIMING_DIAG_LEVEL,
+                  MASTER_TIMING_STEP_DIAG_ENABLED ? 1 : 0,
+                  MASTER_TIMING_DETAIL_DIAG_ENABLED ? 1 : 0);
 
     // boot 行给第一次上电调试使用：确认硬件输出是否启用、旋钮角度范围、
     // 控制周期和通信周期是否与 Instruction.md 中的测试说明一致。
@@ -46,6 +65,7 @@ extern "C" void app_main() {
                   static_cast<unsigned long>(MASTER_COMMAND_PERIOD_MS),
                   kMasterMotorFoc.voltage_limit_v,
                   kMasterXAxis.haptic_current_limit_a);
+#endif
 
     // 从这里开始进入多任务模型：
     // Core 1 运行控制热路径，Core 0 运行 ESP-NOW 与串口状态任务。

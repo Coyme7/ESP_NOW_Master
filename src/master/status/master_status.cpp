@@ -4,63 +4,93 @@
 
 #include "common/protocol/protocol_units.h"
 #include "common/system_state.h"
+#include "master/comm/master_transport.h"
 #include "master/config/master_config.h"
 #include "master/hardware/master_encoder_hw.h"
 #include "master/tasks/master_tasks.h"
-#include "master/comm/master_transport.h"
 
-// 低频状态行输出。这里可以 Serial 打印，因为它运行在状态任务，不在 5kHz 控制热路径。
-// 状态行是低频观测窗口：字段多是为了调试，不代表这些值都参与实时控制。
+// 主机低频状态行。这里只做串口打印，绝不从控制热路径调用。
 void printMasterStatusLine() {
+#if MASTER_STATUS_LOG_ENABLED
+#if MASTER_STATUS_SUMMARY_LOG_ENABLED || MASTER_STATUS_SYNC_LOG_ENABLED
     const MasterCommandPacket command = snapshotMasterCommand();
     const SlaveTelemetryPacket telemetry = snapshotSlaveTelemetry();
-
     const uint32_t now_us = micros();
     const uint32_t telemetry_age_ms =
         (sysData.link.last_telemetry_seq == 0) ? 0 : ((now_us - sysData.link.last_rx_us) / 1000UL);
+    const uint32_t ack_lag = static_cast<uint32_t>(command.seq - telemetry.ack_seq);
+#endif
 
+#if MASTER_STATUS_SUMMARY_LOG_ENABLED
+    const uint16_t active_faults = getActiveFaultFlags();
+    const uint16_t latched_faults = getLatchedFaultFlags();
+
+    Serial.printf("[Master] mode=%s ffb=%u strong=%u timing_level=%u tx=%lu ack=%lu ack_lag=%lu x=%.1f%% y=%.1f%% pen=%u age=%lums send=%lu/%lu rx=%lu/%lu last=%u active_faults=0x%04x latched_faults=0x%04x faults=0x%04x\n",
+                  masterSyncTestModeName(),
+                  MASTER_FORCE_FEEDBACK_ENABLED ? 1 : 0,
+                  MASTER_STRONG_TORQUE_TEST_ENABLED ? 1 : 0,
+                  MASTER_TIMING_DIAG_LEVEL,
+                  static_cast<unsigned long>(command.seq),
+                  static_cast<unsigned long>(telemetry.ack_seq),
+                  static_cast<unsigned long>(ack_lag),
+                  sysData.master.x_pos,
+                  sysData.master.y_pos,
+                  sysData.link.pen_down ? 1 : 0,
+                  static_cast<unsigned long>(telemetry_age_ms),
+                  static_cast<unsigned long>(sysData.link.espnow_send_ok_count),
+                  static_cast<unsigned long>(sysData.link.espnow_send_fail_count),
+                  static_cast<unsigned long>(sysData.link.espnow_recv_ok_count),
+                  static_cast<unsigned long>(sysData.link.espnow_recv_reject_count),
+                  static_cast<unsigned int>(sysData.link.last_send_ok),
+                  static_cast<unsigned int>(active_faults),
+                  static_cast<unsigned int>(latched_faults),
+                  static_cast<unsigned int>(sysData.link.protocol_fault_flags));
+#endif
+
+#if MASTER_STATUS_SYNC_LOG_ENABLED
     uint32_t encoder_frame = 0;
     uint16_t encoder_raw = 0;
     uint8_t encoder_status = 0;
     getMasterEncoderDiagnostics(encoder_frame, encoder_raw, encoder_status);
 
-    const uint32_t ack_lag = static_cast<uint32_t>(command.seq - telemetry.ack_seq);
-    const float sync_err_pct = sysData.master.x_pos - sysData.slave.x_pos;
-    const float sync_err_mm = (sync_err_pct * 0.01f) * PLOT_X_HALF_RANGE_MM;
-    const uint16_t active_faults = getActiveFaultFlags();
-    const uint16_t latched_faults = getLatchedFaultFlags();
+    const float sync_err_x_pct = sysData.master.x_pos - sysData.slave.x_pos;
+    const float sync_err_y_pct = sysData.master.y_pos - sysData.slave.y_pos;
+    const float sync_err_x_mm = (sync_err_x_pct * 0.01f) * PLOT_X_HALF_RANGE_MM;
+    const float sync_err_y_mm = (sync_err_y_pct * 0.01f) * 125.0f;
 
-#if MASTER_CONTROL_HEALTH_DIAG_ENABLED || MASTER_CONTROL_TIMING_DIAG_ENABLED
-    const MasterControlHealthSnapshot health = getMasterControlHealthSnapshot();
-#endif
-#if MASTER_CONTROL_TIMING_DIAG_ENABLED
-    const MasterControlTimingSnapshot timing = getMasterControlTimingSnapshot();
-#endif
-
-#if MASTER_CONTROL_TIMING_DIAG_ENABLED
-    Serial.printf("[Master] tx=%lu ack=%lu ack_lag=%lu angle=%.2fdeg raw=%u stat=0x%01x frame=0x%06lx x=%.1f%% x_norm=%.3f sync_err=%.1f%%/%.1fmm wall_state=%u current=%.3fA iq=%.3fA id=%.3fA vq=%.3fV vd=%.3fV ctrl_dt=%luus ctrl_max=%luus overC1_5=%lu overC2=%lu ctrl_miss=%lu t_us ctrl=%lu/%lu/%lu logic=%lu/%lu/%lu motor=%lu/%lu/%lu move=%lu/%lu/%lu foc=%lu/%lu/%lu cs=%lu/%lu/%lu spi=%lu/%lu/%lu pen=%u slave_x=%.1f%% age=%lums send=%lu/%lu rx=%lu/%lu last=%u active_faults=0x%04x latched_faults=0x%04x faults=0x%04x\n",
-                  static_cast<unsigned long>(command.seq),
-                  static_cast<unsigned long>(telemetry.ack_seq),
-                  static_cast<unsigned long>(ack_lag),
+    Serial.printf("[MasterSync] angle=%.2fdeg raw=%u stat=0x%01x frame=0x%06lx x_norm=%.3f y_norm=%.3f slave_x=%.1f%% slave_y=%.1f%% sync_err_x=%.1f%%/%.1fmm sync_err_y=%.1f%%/%.1fmm\n",
                   sysData.master.angle_deg,
                   static_cast<unsigned int>(encoder_raw),
                   static_cast<unsigned int>(encoder_status),
                   static_cast<unsigned long>(encoder_frame),
-                  sysData.master.x_pos,
                   normToUnit(command.x_norm),
-                  sync_err_pct,
-                  sync_err_mm,
-                  sysData.master.boundary_hit ? 1 : 0,
-                  sysData.master.target_current_a,
-                  sysData.master.current_q_a,
-                  sysData.master.current_d_a,
-                  sysData.master.voltage_q_v,
-                  sysData.master.voltage_d_v,
+                  normToUnit(command.y_norm),
+                  sysData.slave.x_pos,
+                  sysData.slave.y_pos,
+                  sync_err_x_pct,
+                  sync_err_x_mm,
+                  sync_err_y_pct,
+                  sync_err_y_mm);
+#endif
+
+#if MASTER_STATUS_TIMING_LOG_ENABLED && MASTER_TIMING_STEP_DIAG_ENABLED
+    const MasterControlHealthSnapshot health = getMasterControlHealthSnapshot();
+    Serial.printf("[MasterTiming] diag=%u ctrl_dt=%luus ctrl_max=%luus step_us=%lu step_max=%lu over_period=%lu over_75pct=%lu over_50pct=%lu ctrl_miss=%lu dt_over_1_5=%lu dt_over_2=%lu\n",
+                  static_cast<unsigned int>(health.diag_level),
                   static_cast<unsigned long>(health.last_dt_us),
                   static_cast<unsigned long>(health.max_dt_us),
-                  static_cast<unsigned long>(health.over_1_5_count),
-                  static_cast<unsigned long>(health.over_2_count),
+                  static_cast<unsigned long>(health.step_us),
+                  static_cast<unsigned long>(health.step_max_us),
+                  static_cast<unsigned long>(health.step_over_period_delta),
+                  static_cast<unsigned long>(health.step_over_75pct_delta),
+                  static_cast<unsigned long>(health.step_over_50pct_delta),
                   static_cast<unsigned long>(health.missed_ticks),
+                  static_cast<unsigned long>(health.dt_over_1_5_count),
+                  static_cast<unsigned long>(health.dt_over_2_count));
+
+#if MASTER_STATUS_TIMING_DETAIL_LOG_ENABLED && MASTER_CONTROL_TIMING_DIAG_ENABLED
+    const MasterControlTimingSnapshot timing = getMasterControlTimingSnapshot();
+    Serial.printf("[MasterTimingDetail] total=%lu/%lu/%lu logic=%lu/%lu/%lu motor=%lu/%lu/%lu move=%lu/%lu/%lu foc=%lu/%lu/%lu current=%lu/%lu/%lu sensor=%lu/%lu/%lu\n",
                   static_cast<unsigned long>(timing.control_total.last_us),
                   static_cast<unsigned long>(timing.control_total.avg_us),
                   static_cast<unsigned long>(timing.control_total.max_us),
@@ -81,82 +111,8 @@ void printMasterStatusLine() {
                   static_cast<unsigned long>(timing.current_sense.max_us),
                   static_cast<unsigned long>(timing.sensor_spi.last_us),
                   static_cast<unsigned long>(timing.sensor_spi.avg_us),
-                  static_cast<unsigned long>(timing.sensor_spi.max_us),
-                  sysData.link.pen_down ? 1 : 0,
-                  sysData.slave.x_pos,
-                  static_cast<unsigned long>(telemetry_age_ms),
-                  static_cast<unsigned long>(sysData.link.espnow_send_ok_count),
-                  static_cast<unsigned long>(sysData.link.espnow_send_fail_count),
-                  static_cast<unsigned long>(sysData.link.espnow_recv_ok_count),
-                  static_cast<unsigned long>(sysData.link.espnow_recv_reject_count),
-                  static_cast<unsigned int>(sysData.link.last_send_ok),
-                  static_cast<unsigned int>(active_faults),
-                  static_cast<unsigned int>(latched_faults),
-                  static_cast<unsigned int>(sysData.link.protocol_fault_flags));
-#elif MASTER_CONTROL_HEALTH_DIAG_ENABLED
-    Serial.printf("[Master] tx=%lu ack=%lu ack_lag=%lu angle=%.2fdeg raw=%u stat=0x%01x frame=0x%06lx x=%.1f%% x_norm=%.3f sync_err=%.1f%%/%.1fmm wall_state=%u current=%.3fA iq=%.3fA id=%.3fA vq=%.3fV vd=%.3fV ctrl_dt=%luus ctrl_max=%luus overC1_5=%lu overC2=%lu ctrl_miss=%lu pen=%u slave_x=%.1f%% age=%lums send=%lu/%lu rx=%lu/%lu last=%u active_faults=0x%04x latched_faults=0x%04x faults=0x%04x\n",
-                  static_cast<unsigned long>(command.seq),
-                  static_cast<unsigned long>(telemetry.ack_seq),
-                  static_cast<unsigned long>(ack_lag),
-                  sysData.master.angle_deg,
-                  static_cast<unsigned int>(encoder_raw),
-                  static_cast<unsigned int>(encoder_status),
-                  static_cast<unsigned long>(encoder_frame),
-                  sysData.master.x_pos,
-                  normToUnit(command.x_norm),
-                  sync_err_pct,
-                  sync_err_mm,
-                  sysData.master.boundary_hit ? 1 : 0,
-                  sysData.master.target_current_a,
-                  sysData.master.current_q_a,
-                  sysData.master.current_d_a,
-                  sysData.master.voltage_q_v,
-                  sysData.master.voltage_d_v,
-                  static_cast<unsigned long>(health.last_dt_us),
-                  static_cast<unsigned long>(health.max_dt_us),
-                  static_cast<unsigned long>(health.over_1_5_count),
-                  static_cast<unsigned long>(health.over_2_count),
-                  static_cast<unsigned long>(health.missed_ticks),
-                  sysData.link.pen_down ? 1 : 0,
-                  sysData.slave.x_pos,
-                  static_cast<unsigned long>(telemetry_age_ms),
-                  static_cast<unsigned long>(sysData.link.espnow_send_ok_count),
-                  static_cast<unsigned long>(sysData.link.espnow_send_fail_count),
-                  static_cast<unsigned long>(sysData.link.espnow_recv_ok_count),
-                  static_cast<unsigned long>(sysData.link.espnow_recv_reject_count),
-                  static_cast<unsigned int>(sysData.link.last_send_ok),
-                  static_cast<unsigned int>(active_faults),
-                  static_cast<unsigned int>(latched_faults),
-                  static_cast<unsigned int>(sysData.link.protocol_fault_flags));
-#else
-    Serial.printf("[Master] tx=%lu ack=%lu ack_lag=%lu angle=%.2fdeg raw=%u stat=0x%01x frame=0x%06lx x=%.1f%% x_norm=%.3f sync_err=%.1f%%/%.1fmm wall_state=%u current=%.3fA iq=%.3fA id=%.3fA vq=%.3fV vd=%.3fV pen=%u slave_x=%.1f%% age=%lums send=%lu/%lu rx=%lu/%lu last=%u active_faults=0x%04x latched_faults=0x%04x faults=0x%04x\n",
-                  static_cast<unsigned long>(command.seq),
-                  static_cast<unsigned long>(telemetry.ack_seq),
-                  static_cast<unsigned long>(ack_lag),
-                  sysData.master.angle_deg,
-                  static_cast<unsigned int>(encoder_raw),
-                  static_cast<unsigned int>(encoder_status),
-                  static_cast<unsigned long>(encoder_frame),
-                  sysData.master.x_pos,
-                  normToUnit(command.x_norm),
-                  sync_err_pct,
-                  sync_err_mm,
-                  sysData.master.boundary_hit ? 1 : 0,
-                  sysData.master.target_current_a,
-                  sysData.master.current_q_a,
-                  sysData.master.current_d_a,
-                  sysData.master.voltage_q_v,
-                  sysData.master.voltage_d_v,
-                  sysData.link.pen_down ? 1 : 0,
-                  sysData.slave.x_pos,
-                  static_cast<unsigned long>(telemetry_age_ms),
-                  static_cast<unsigned long>(sysData.link.espnow_send_ok_count),
-                  static_cast<unsigned long>(sysData.link.espnow_send_fail_count),
-                  static_cast<unsigned long>(sysData.link.espnow_recv_ok_count),
-                  static_cast<unsigned long>(sysData.link.espnow_recv_reject_count),
-                  static_cast<unsigned int>(sysData.link.last_send_ok),
-                  static_cast<unsigned int>(active_faults),
-                  static_cast<unsigned int>(latched_faults),
-                  static_cast<unsigned int>(sysData.link.protocol_fault_flags));
+                  static_cast<unsigned long>(timing.sensor_spi.max_us));
+#endif
+#endif
 #endif
 }

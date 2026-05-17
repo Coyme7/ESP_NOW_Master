@@ -21,9 +21,17 @@ volatile uint32_t controlTimerLastDtUs = 0;
 volatile uint32_t controlTimerMaxDtUs = 0;
 volatile uint32_t controlTimerOver150Count = 0;
 volatile uint32_t controlTimerOver200Count = 0;
+volatile uint32_t controlStepLastUs = 0;
+volatile uint32_t controlStepMaxUs = 0;
+volatile uint32_t controlStepOverPeriodCount = 0;
+volatile uint32_t controlStepOver75PctCount = 0;
+volatile uint32_t controlStepOver50PctCount = 0;
 
 const uint32_t warn_dt_us = (MASTER_CONTROL_LOOP_PERIOD_US * 3U) / 2U;
 const uint32_t miss_dt_us = MASTER_CONTROL_LOOP_PERIOD_US * 2U;
+const uint32_t step_over_period_us = MASTER_CONTROL_LOOP_PERIOD_US;
+const uint32_t step_over_75pct_us = (MASTER_CONTROL_LOOP_PERIOD_US * 3U) / 4U;
+const uint32_t step_over_50pct_us = MASTER_CONTROL_LOOP_PERIOD_US / 2U;
 
 // 时序统计累加器：记录次数、总耗时、最近耗时和最大耗时。
 struct TimingAccumulator {
@@ -133,9 +141,13 @@ bool startControlTimer() {
         return false;
     }
 
+#if MASTER_CONTROL_TIMER_LOG_ENABLED
     Serial.printf("[Master] control_timer started period=%luus dispatch=%s\n",
                   static_cast<unsigned long>(MASTER_CONTROL_TIMER_PERIOD_US),
                   dispatch_name);
+#else
+    (void)dispatch_name;
+#endif
     return true;
 }
 
@@ -164,7 +176,7 @@ void task_control_loop(void *pvParameters) {
             continue;
         }
 
-#if MASTER_CONTROL_HEALTH_DIAG_ENABLED || MASTER_CONTROL_TIMING_DIAG_ENABLED
+#if MASTER_TIMING_STEP_DIAG_ENABLED
         if (pending_ticks > 1) {
             controlTimerMissedTicks += pending_ticks - 1;
         }
@@ -175,7 +187,7 @@ void task_control_loop(void *pvParameters) {
         const uint32_t dt_us = now_us - previous_us;
         previous_us = now_us;
 
-#if MASTER_CONTROL_HEALTH_DIAG_ENABLED || MASTER_CONTROL_TIMING_DIAG_ENABLED
+#if MASTER_TIMING_STEP_DIAG_ENABLED
         controlTimerLastDtUs = dt_us;
         if (dt_us > controlTimerMaxDtUs) {
             controlTimerMaxDtUs = dt_us;
@@ -186,14 +198,28 @@ void task_control_loop(void *pvParameters) {
         if (dt_us > miss_dt_us) {
             controlTimerOver200Count++;
         }
-#endif
-
-#if MASTER_CONTROL_TIMING_DIAG_ENABLED
-        const uint32_t control_start_us = micros();
+        // level 1 只测完整控制步耗时；level 2 复用同一次采样，同时记录分段耗时。
+        const uint32_t control_step_start_us = micros();
 #endif
         runMasterControlStep(static_cast<float>(dt_us) * 0.000001f);
+#if MASTER_TIMING_STEP_DIAG_ENABLED
+        const uint32_t step_us = micros() - control_step_start_us;
+        controlStepLastUs = step_us;
+        if (step_us > controlStepMaxUs) {
+            controlStepMaxUs = step_us;
+        }
+        if (step_us > step_over_period_us) {
+            controlStepOverPeriodCount++;
+        }
+        if (step_us > step_over_75pct_us) {
+            controlStepOver75PctCount++;
+        }
+        if (step_us > step_over_50pct_us) {
+            controlStepOver50PctCount++;
+        }
 #if MASTER_CONTROL_TIMING_DIAG_ENABLED
-        recordMasterTimingControlTotalUs(micros() - control_start_us);
+        recordMasterTimingControlTotalUs(step_us);
+#endif
 #endif
     }
 }
@@ -204,10 +230,12 @@ void task_comm_loop(void *pvParameters) {
     (void)pvParameters;
 
     uint32_t seq = 0;
+    TickType_t last_wake = xTaskGetTickCount();
     while (true) {
         processMasterTelemetry();
         sendMasterCommand(seq++, micros());
-        vTaskDelay(pdMS_TO_TICKS(MASTER_COMMAND_PERIOD_MS));
+        // 使用绝对周期发送，避免“处理耗时 + delay”导致 200Hz 发包节奏慢慢漂移。
+        vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(MASTER_COMMAND_PERIOD_MS));
     }
 }
 #endif
@@ -218,7 +246,7 @@ void task_status_loop(void *pvParameters) {
 
     while (true) {
         printMasterStatusLine();
-        vTaskDelay(pdMS_TO_TICKS(STATUS_LOOP_PERIOD_MS));
+        vTaskDelay(pdMS_TO_TICKS(MASTER_STATUS_LOOP_PERIOD_MS));
     }
 }
 
@@ -248,23 +276,38 @@ uint32_t getMasterControlOver200Count() {
 // 返回控制周期健康快照，并清空窗口统计值。
 MasterControlHealthSnapshot getMasterControlHealthSnapshot() {
     MasterControlHealthSnapshot snapshot = {};
-#if MASTER_CONTROL_HEALTH_DIAG_ENABLED || MASTER_CONTROL_TIMING_DIAG_ENABLED
+    snapshot.diag_level = MASTER_TIMING_DIAG_LEVEL;
+#if MASTER_TIMING_STEP_DIAG_ENABLED
     const uint32_t last_dt_us = controlTimerLastDtUs;
     uint32_t max_dt_us = controlTimerMaxDtUs;
     if (max_dt_us < last_dt_us) {
         max_dt_us = last_dt_us;
     }
+    const uint32_t last_step_us = controlStepLastUs;
+    uint32_t max_step_us = controlStepMaxUs;
+    if (max_step_us < last_step_us) {
+        max_step_us = last_step_us;
+    }
 
     snapshot.last_dt_us = last_dt_us;
     snapshot.max_dt_us = max_dt_us;
-    snapshot.over_1_5_count = controlTimerOver150Count;
-    snapshot.over_2_count = controlTimerOver200Count;
+    snapshot.step_us = last_step_us;
+    snapshot.step_max_us = max_step_us;
+    snapshot.step_over_period_delta = controlStepOverPeriodCount;
+    snapshot.step_over_75pct_delta = controlStepOver75PctCount;
+    snapshot.step_over_50pct_delta = controlStepOver50PctCount;
+    snapshot.dt_over_1_5_count = controlTimerOver150Count;
+    snapshot.dt_over_2_count = controlTimerOver200Count;
     snapshot.missed_ticks = controlTimerMissedTicks;
 
     controlTimerMaxDtUs = 0;
     controlTimerOver150Count = 0;
     controlTimerOver200Count = 0;
     controlTimerMissedTicks = 0;
+    controlStepMaxUs = 0;
+    controlStepOverPeriodCount = 0;
+    controlStepOver75PctCount = 0;
+    controlStepOver50PctCount = 0;
 #endif
     return snapshot;
 }
@@ -321,6 +364,7 @@ void startMasterTasks() {
                             NULL,
                             MASTER_IO_CORE);
 #endif
+#if MASTER_STATUS_LOG_ENABLED
     xTaskCreatePinnedToCore(task_status_loop,
                             "MasterStatus",
                             MASTER_STATUS_TASK_STACK_BYTES,
@@ -328,6 +372,7 @@ void startMasterTasks() {
                             MASTER_STATUS_TASK_PRIORITY,
                             NULL,
                             MASTER_IO_CORE);
+#endif
     xTaskCreatePinnedToCore(task_control_loop,
                             "MasterControl",
                             MASTER_CONTROL_TASK_STACK_BYTES,
