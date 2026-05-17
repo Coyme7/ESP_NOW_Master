@@ -295,6 +295,7 @@ ESP_NOW_Slave/
 - `step_us / ctrl_miss_delta / x_sensor_us / x_foc_us / x_move_us` 的可信度验证。
 - FULL_CONTROL 与性能隔离模式的对比。
 - 进入 Y 轴前完成 SingleX 长时间稳定性测试。
+- 后续云台采取2khz控制频率
 
 ### 8.6 fault、UV、pen
 
@@ -314,7 +315,6 @@ ESP_NOW_Slave/
 
 ## 9. 当前限制
 
-- 不能按当前状态宣称完整 XY 绘图已完成。
 - Y 轴闭环未完成真实硬件验证。
 - UV / 紫光灯绘图默认关闭。
 - 从机 5kHz 仍在热路径验证中。
@@ -365,9 +365,7 @@ ESP_NOW_Slave/
 - BLE 手机 / 电脑控制。
 - AUTO_DRAW 自动绘图。
 - 从端反向驱动主端旋钮。
-- Surface Dial、音乐盒、太空人等扩展模式。
 - 双旋钮产品化手感。
-- 外壳、PCB 产品化和量产结构。
 
 ---
 
