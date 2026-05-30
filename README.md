@@ -4,9 +4,8 @@
 
 项目由主端、从端和通信链路组成。主端负责交互输入与力反馈，从端负责云台执行与后续 UV 绘图，通信链路负责坐标命令、状态回传和故障诊断。
 
-当前工程状态：**主机力反馈与主从 SingleX 单轴同步验证阶段**。完整双轴绘图、UV 曝光绘图、BLE 控制和自动绘图仍属于后续阶段。
+当前工程状态：**主机力反馈与主从同步验证阶段**。默认构建可作为基准测试版本；SingleX/Y、DualXY 和 AutoDraw dry-run。完整 UV 曝光绘图、BLE 控制和真实自动绘图仍属于后续阶段。
 
-以便于git，主从机上传不同的仓库，从机仓库链接：https://github.com/Coyme7/ESP_NOW_Slave
 ---
 
 ## 1. 系统架构
@@ -45,7 +44,7 @@
 | 驱动板 | 2 × DengFoc mini 单路驱动 |
 | 控制方式 | SimpleFOC 电压控制位置执行 |
 | 绘图输出 | 紫光灯 / UV 笔，当前默认关闭 |
-| 当前重点 | X 轴 SingleX 同步、5kHz 热路径、状态回传 |
+| 当前重点 | 主机 SingleX/SingleY 10kHz、主机 DualXY 5kHz、从机 SingleX/SingleY 5kHz、从机 DualXY 2kHz、状态回传 |
 
 ### 1.3 通信
 
@@ -80,7 +79,7 @@
 
 后续从端可执行预设轨迹，例如圆、五角星或图案路径。自动绘图时，数据流可反向回传：从端实时位置通过 ESP-NOW 回传主端，主端旋钮跟随运动。
 
-当前状态：规划中。该功能依赖 DualXY 闭环、路径规划、UV 安全联锁和主端反向驱动策略。
+当前状态：AutoDraw dry-run 协议路径已用于联动验证，真实 UV 自动绘图仍规划中。该功能依赖 DualXY 闭环、路径规划、UV 安全联锁和主端反向驱动策略。
 
 ### 2.3 BLE 控制模式
 
@@ -92,15 +91,17 @@
 
 ## 3. 光路与绘图范围
 
-当前光路基准：
+当前光路基准按 A4 纸竖放计算：
 
 | 项目 | 数值 |
 |---|---:|
 | 云台 / 紫光笔到纸面距离 | 约 30cm |
-| 有效绘图范围 | 约 25cm × 25cm |
-| 单轴半幅 | 约 12.5cm / 125mm |
-| 单轴半角 | 约 22.6° |
-| 单轴总摆角 | 约 45.2° |
+| 默认纸面方向 | A4 竖放 |
+| 有效绘图范围 | 约 210mm × 297mm |
+| X 轴半幅 | 约 105mm |
+| Y 轴半幅 | 约 148.5mm |
+| X 轴半角 | 约 19.3° |
+| Y 轴半角 | 约 26.3° |
 
 这些数值用于坐标映射、纸面边界判断和虚拟墙设计。当前调试仍以单轴 X 跟随为主，完整 XY 几何标定尚未完成。
 
@@ -112,14 +113,24 @@
 
 | 层级 | 当前基准 | 说明 |
 |---|---:|---|
-| 主端单旋钮电流环 | 8kHz 调试基准 | 用于验证主机 ADC、SSI、current sense 热路径 |
-| 主端双旋钮力反馈 | 5kHz 评估基准 | 双电机后重新评估总热路径 |
-| 从端 SingleX | 5kHz 压测基准 | `200us / FOC every 1`，用于验证 X 轴极限实时性 |
-| 从端双轴绘图 | 2kHz 工程基准 | 双轴阶段优先保证稳定轨迹和低漏拍 |
+| 主端 SingleX / SingleY | 10kHz 单轴压测基准 | `100us / run mode`，用于验证主机 ADC、SSI、current sense 热路径 |
+| 主端 DualXY | 5kHz 双轴验收基准 | `200us / run mode`，双电机后继续观察总热路径长尾 |
+| 从端 SingleX / SingleY | 5kHz 单轴压测基准 | `200us / FOC every 1`，用于单轴硬件热路径验证 |
+| 从端 DualXY | 2kHz 工程验收基准 | `500us / FOC every 1`，双轴阶段优先保证稳定轨迹和低漏拍 |
+| 从端 DualXY dry-run | 2kHz 逻辑验证基准 | 不初始化真实电机，用于协议、轨迹和安全状态联调 |
 | 从端外环 / 插值 / UV 安全 | 约 1kHz | 轨迹平滑、限速、落笔安全状态机 |
 | ESP-NOW 坐标命令 | 约 333Hz | 不追求 1kHz 高频通信 |
 | 状态输出 | 低频 | 串口日志与 telemetry 不进入高频控制路径 |
-| 10kHz FOC | 后续目标 | 不作为当前双轴绘图验收频率 |
+| 10kHz FOC | 主机单轴压测目标 | 不作为当前主机双轴和从机双轴验收频率 |
+
+### 4.1 测试开关入口
+
+当前测试入口分为两层：
+
+- `*_RUN_MODE`：选择硬件路径和默认控制周期。
+- `*_STARTUP_APP_MODE`：选择上电后的默认业务入口。
+
+测试人员按 `SingleX 手动联动 -> SingleY 单轴 -> DualXY dry-run -> DualXY 真实硬件 -> AutoDraw dry-run -> UV 安全验证` 逐级推进。具体开关顺序见 [TEST_SWITCH_GUIDE.md](./TEST_SWITCH_GUIDE.md)。
 
 任务分配：
 
@@ -137,7 +148,7 @@
 | 开发板 | RYMCU ESP32-S3-DevKitC-1-N8R2 |
 | 主控 | ESP32-S3，双核 Xtensa LX7，240MHz |
 | Flash | 8MB Quad SPI |
-| PSRAM | 2MB Quad SPI |
+| PSRAM | N8R2 板载 2MB Quad PSRAM；当前业务固件不声明、不初始化、不依赖 PSRAM |
 | IDE | VS Code + PlatformIO |
 | 构建系统 | CMake 3.30.2 |
 | 构建工具 | Ninja 1.9.0 |
@@ -214,7 +225,7 @@ ESP_NOW_Slave/
 | 4 | 配置宏、日志、注释、结构清理 | 部分完成 |
 | 5 | ESP-NOW 协议语义 | 部分完成 |
 | 6 | 主从 SingleX 单轴同步 | 初步可用 |
-| 7 | 从机 5kHz 热路径收口 | 当前主线 |
+| 7 | 从机 SingleX/SingleY 5kHz 与 DualXY 2kHz 路径收口 | 当前主线 |
 | 8 | fault / safety / UV / pen 隔离 | 部分完成 |
 | 9 | Y 轴、DualXY、UV 绘图、BLE、AUTO_DRAW | 未进入 |
 
@@ -274,6 +285,7 @@ ESP_NOW_Slave/
 - 控制包采用 latest target 覆盖，不逐包重发旧坐标。
 - `stale / duplicate / timeout` 用于通信质量判断，不直接等同硬件故障。
 - 从机 X 轴稳态跟随已经初步可用。
+- 从机遥测 `mode` 回传当前实际接受的协议语义，不再把未接受的 AutoDraw 请求回显为已接受。
 
 仍需处理：
 
@@ -281,11 +293,12 @@ ESP_NOW_Slave/
 - `sysData` 不能长期作为实时发包源。
 - `seq / ack_seq / rxok / rxbad / rxrej` 统计需要继续保持可解释。
 
-### 8.5 从机 5kHz 热路径
+### 8.5 从机 SingleX/SingleY 5kHz 与 DualXY 2kHz
 
 已完成 / 已明确：
 
-- `200us / 5kHz / FOC every 1` 是 SingleX 当前压测基准。
+- `200us / 5kHz / FOC every 1` 是 SingleX/SingleY 单轴压测基准。
+- `500us / 2kHz / FOC every 1` 是 DualXY 当前验收基准。
 - Level 2 timing 会污染 5kHz 判断，不能只看偶发 max。
 - Level 0 / Level 1 更接近运行负载。
 - 热路径需要拆分 `sensor / loopFOC / move / state publish / timing`。
@@ -295,7 +308,6 @@ ESP_NOW_Slave/
 - `step_us / ctrl_miss_delta / x_sensor_us / x_foc_us / x_move_us` 的可信度验证。
 - FULL_CONTROL 与性能隔离模式的对比。
 - 进入 Y 轴前完成 SingleX 长时间稳定性测试。
-- 后续云台采取2khz控制频率
 
 ### 8.6 fault、UV、pen
 
@@ -315,9 +327,11 @@ ESP_NOW_Slave/
 
 ## 9. 当前限制
 
+- 不能按当前状态宣称完整 XY 绘图已完成。
 - Y 轴闭环未完成真实硬件验证。
 - UV / 紫光灯绘图默认关闭。
-- 从机 5kHz 仍在热路径验证中。
+- 主机 SingleX/SingleY 10kHz 用于单轴热路径压测，主机 DualXY 5kHz 用于双旋钮验收；从机 SingleX/SingleY 5kHz 用于单轴热路径压测，从机 DualXY 2kHz 用于当前双轴绘图验收。
+- 当前主从业务固件不声明、不初始化、不依赖 PSRAM；不得定义 `BOARD_HAS_PSRAM`，不得启用 `CONFIG_SPIRAM`，不得使用 `ps_malloc` / `MALLOC_CAP_SPIRAM` / 外部 RAM 分配。PSRAM 硬件验证必须走独立 bring-up，不能绑在电机/通信业务固件启动链路里。
 - 主机虚拟墙手感未最终定型。
 - fault 来源仍需继续拆分。
 - 配置宏仍需继续清理，尤其是 skip align、sensor direction、timing level 和日志开关。
@@ -363,9 +377,11 @@ ESP_NOW_Slave/
 - 完整 XY 绘图路径规划。
 - UV 笔 / 紫光灯真实曝光输出。
 - BLE 手机 / 电脑控制。
-- AUTO_DRAW 自动绘图。
+- 真实 UV AUTO_DRAW 自动绘图。
 - 从端反向驱动主端旋钮。
+- Surface Dial、音乐盒、太空人等扩展模式。
 - 双旋钮产品化手感。
+- 外壳、PCB 产品化和量产结构。
 
 ---
 
@@ -373,7 +389,7 @@ ESP_NOW_Slave/
 
 | 阶段 | 目标 |
 |---|---|
-| v0.3.x | 主机电流环回归、虚拟墙实测、SingleX 稳定性、从机 5kHz 热路径分解 |
+| v0.3.x | 主机电流环回归、虚拟墙实测、SingleX 稳定性、从机 SingleX/SingleY 5kHz 与 DualXY 2kHz 分解 |
 | v0.4.x | SingleX 长时间稳定运行、`MasterRtCommand / SlaveRtCommand` 收口、动态误差优化 |
 | v0.5.x | YSensorOnly、YMotorOpenLoop、YClosedLoop、DualXYFramework |
 | v0.6.x | `pen_req / uv_out` 接入、UV interlock、纸面尺寸映射、抬笔 / 落笔状态机 |
