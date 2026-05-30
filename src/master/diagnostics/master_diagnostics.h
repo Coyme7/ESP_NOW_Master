@@ -2,17 +2,19 @@
 
 #include <SimpleFOC.h>
 
+#include "master/config/core/master_motor_config.h"
 #include "master/hardware/master_current_sense_adc1.h"
 #include "master/hardware/master_encoder_hw.h"
 
 // 主机诊断模块共享的硬件上下文。
-// 诊断代码只在启动/显式诊断路径运行，不进入 200us / 5kHz 控制热路径。
+// 诊断代码只在启动/显式诊断路径运行，不进入控制热路径。
 // 诊断上下文用引用持有硬件对象，避免诊断函数依赖全局变量过多。
 struct MasterMotorDiagnosticsContext {
     BLDCMotor &motor;
     BLDCDriver3PWM &driver;
     MasterAdc1CurrentSense &current_sense;
     MasterMt6701Sensor &sensor;
+    const MasterMotorFocConfig &motor_config;
 };
 
 // current_sense diag_only 会在 initFOC 前占用启动流程，返回 true 表示调用方应保持电机禁用。

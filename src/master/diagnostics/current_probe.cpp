@@ -6,7 +6,7 @@
 #include "common/math/clamp.h"
 #include "master/config/master_config.h"
 
-#if MASTER_MOTOR_HW_ENABLED && MASTER_USE_CURRENT_SENSE
+#if MASTER_ENABLE_MOTOR_HW && MASTER_ENABLE_CURRENT_SENSE
 namespace {
 
 // 直接读取 ADC 原始电压，不经过 offset/gain，便于观察硬件采样基线。
@@ -39,13 +39,13 @@ PhaseCurrent_s sampleMasterCurrentSenseVoltagesOnce(MasterMotorDiagnosticsContex
 
 // 预读 ADC，让采样链路进入稳定状态后再做 offset 校准。
 void primeMasterCurrentSenseAdc(MasterMotorDiagnosticsContext &context) {
-    for (uint8_t i = 0; i < MASTER_CURRENT_SENSE_ADC_PRIME_READS; ++i) {
+    for (uint16_t i = 0; i < kMasterCurrentSenseDiag.adc_prime_reads; ++i) {
         (void)context.current_sense.readRawA();
         (void)context.current_sense.readRawB();
     }
 }
 
-#if MASTER_CURRENT_SENSE_DIAG_ONLY
+#if MASTER_ENABLE_CURRENT_SENSE_DIAG_TEST
 void logMasterCurrentProbeSample(MasterMotorDiagnosticsContext &context,
                                  const char *label,
                                  const char *stage,
@@ -83,11 +83,11 @@ void runMasterCurrentProbePoint(MasterMotorDiagnosticsContext &context,
                                 float phase_v_v,
                                 float phase_w_v) {
     context.driver.setPwm(phase_u_v, phase_v_v, phase_w_v);
-    delay(MASTER_CURRENT_SENSE_DIAG_EARLY_MS);
+    delay(kMasterCurrentSenseDiag.early_ms);
     logMasterCurrentProbeSample(context, label, "early", phase_u_v, phase_v_v, phase_w_v);
     const uint32_t remaining_settle_ms =
-        (MASTER_CURRENT_SENSE_DIAG_SETTLE_MS > MASTER_CURRENT_SENSE_DIAG_EARLY_MS)
-            ? (MASTER_CURRENT_SENSE_DIAG_SETTLE_MS - MASTER_CURRENT_SENSE_DIAG_EARLY_MS)
+        (kMasterCurrentSenseDiag.settle_ms > kMasterCurrentSenseDiag.early_ms)
+            ? (kMasterCurrentSenseDiag.settle_ms - kMasterCurrentSenseDiag.early_ms)
             : 0;
     if (remaining_settle_ms > 0) {
         delay(remaining_settle_ms);
@@ -101,20 +101,20 @@ void runMasterCurrentProbePoint(MasterMotorDiagnosticsContext &context,
 
 // 电机不输出时采样平均值作为 offset，后续电流 = (电压 - offset) * gain。
 void calibrateMasterCurrentSenseOffsets(MasterMotorDiagnosticsContext &context) {
-#if MASTER_MOTOR_HW_ENABLED && MASTER_USE_CURRENT_SENSE
+#if MASTER_ENABLE_MOTOR_HW && MASTER_ENABLE_CURRENT_SENSE
     const float saved_gain_a = context.current_sense.gain_a;
     const float saved_gain_b = context.current_sense.gain_b;
     const float saved_gain_c = context.current_sense.gain_c;
     const float saved_offset_ic = context.current_sense.offset_ic;
     const uint32_t calibration_reads =
-        (MASTER_CURRENT_SENSE_OFFSET_CALIBRATION_READS > 0)
-            ? MASTER_CURRENT_SENSE_OFFSET_CALIBRATION_READS
+        (kMasterCurrentSenseDiag.offset_reads > 0)
+            ? kMasterCurrentSenseDiag.offset_reads
             : 1UL;
 
     // DengFoc 在 EN/PWM 活动后 ADC 零点会漂到运行态偏置，offset 必须在同状态下测。
     context.driver.enable();
     context.driver.setPwm(0.0f, 0.0f, 0.0f);
-    delay(MASTER_CURRENT_SENSE_OFFSET_SETTLE_MS);
+    delay(kMasterCurrentSenseDiag.offset_settle_ms);
     primeMasterCurrentSenseAdc(context);
 
     context.current_sense.offset_ia = 0.0f;
@@ -146,7 +146,7 @@ void calibrateMasterCurrentSenseOffsets(MasterMotorDiagnosticsContext &context) 
     context.driver.disable();
 
     Serial.printf("[Master] motor_diag current_sense offset_cal mode=driver_enabled_pwm0 settle=%ums samples=%lu ia=%.4fV ib=%.4fV raw_adc=%d,%d\n",
-                  static_cast<unsigned int>(MASTER_CURRENT_SENSE_OFFSET_SETTLE_MS),
+                  static_cast<unsigned int>(kMasterCurrentSenseDiag.offset_settle_ms),
                   static_cast<unsigned long>(calibration_reads),
                   context.current_sense.offset_ia,
                   context.current_sense.offset_ib,
@@ -159,22 +159,22 @@ void calibrateMasterCurrentSenseOffsets(MasterMotorDiagnosticsContext &context) 
 
 // 分别注入 U/V/W 相，观察 ia/ib 符号和幅值，用于确认采样通道与方向。
 void runMasterCurrentSenseProbe(MasterMotorDiagnosticsContext &context) {
-#if MASTER_MOTOR_HW_ENABLED && MASTER_USE_CURRENT_SENSE && MASTER_CURRENT_SENSE_DIAG_ONLY
-    const float probe_voltage_v = clampFloat(MASTER_CURRENT_SENSE_DIAG_VOLTAGE_V,
+#if MASTER_ENABLE_MOTOR_HW && MASTER_ENABLE_CURRENT_SENSE && MASTER_ENABLE_CURRENT_SENSE_DIAG_TEST
+    const float probe_voltage_v = clampFloat(kMasterCurrentSenseDiag.voltage_v,
                                              0.0f,
-                                             kMasterMotorFoc.voltage_limit_v);
+                                             context.motor_config.voltage_limit_v);
     Serial.printf("[Master] current_probe start voltage=%.2fV settle=%ums\n",
                   probe_voltage_v,
-                  static_cast<unsigned int>(MASTER_CURRENT_SENSE_DIAG_SETTLE_MS));
+                  static_cast<unsigned int>(kMasterCurrentSenseDiag.settle_ms));
     context.driver.enable();
     context.driver.setPwm(0.0f, 0.0f, 0.0f);
-    delay(MASTER_CURRENT_SENSE_DIAG_SETTLE_MS);
+    delay(kMasterCurrentSenseDiag.settle_ms);
     logMasterCurrentProbeSample(context, "idle0", "settled", 0.0f, 0.0f, 0.0f);
     runMasterCurrentProbePoint(context, "phase_u", probe_voltage_v, 0.0f, 0.0f);
     runMasterCurrentProbePoint(context, "phase_v", 0.0f, probe_voltage_v, 0.0f);
     runMasterCurrentProbePoint(context, "phase_w", 0.0f, 0.0f, probe_voltage_v);
     context.driver.setPwm(0.0f, 0.0f, 0.0f);
-    delay(MASTER_CURRENT_SENSE_DIAG_SETTLE_MS);
+    delay(kMasterCurrentSenseDiag.settle_ms);
     logMasterCurrentProbeSample(context, "idle1", "settled", 0.0f, 0.0f, 0.0f);
     context.driver.disable();
 #else

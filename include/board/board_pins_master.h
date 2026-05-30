@@ -11,14 +11,13 @@ static constexpr int MOTOR1_CURRENT_B = 5;
 static constexpr int MOTOR2_CURRENT_A = 1;
 static constexpr int MOTOR2_CURRENT_B = 2;
 
-// 电机驱动使能脚；启动安全状态要求先拉低，再由硬件初始化流程接管。
-static constexpr int MOTOR1_EN = 6;
-static constexpr int MOTOR2_EN = 7;
+// DengFoc 双路驱动板共用使能脚；启动安全状态要求先拉低，再由硬件初始化流程接管。
+static constexpr int MOTOR_DRIVER_EN = 6;
 
 // 三相 PWM 输出。MOTOR1 当前用于 X 旋钮测试，MOTOR2 预留给第二个旋钮轴。
-static constexpr int MOTOR1_PWM_U = 15;
-static constexpr int MOTOR1_PWM_V = 16;
-static constexpr int MOTOR1_PWM_W = 17;
+static constexpr int MOTOR1_PWM_U = 7;
+static constexpr int MOTOR1_PWM_V = 15;
+static constexpr int MOTOR1_PWM_W = 16;
 
 static constexpr int MOTOR2_PWM_U = 9;
 static constexpr int MOTOR2_PWM_V = 10;
@@ -33,10 +32,13 @@ static constexpr int ENCODER2_CS = 38;
 static constexpr int ENCODER2_DO = 37;
 static constexpr int ENCODER2_CLK = 36;
 
-// 人机输入和状态输出。MAIN_BUTTON 当前映射为落笔/抬笔命令。
+// 人机输入和状态输出。MAIN_BUTTON 当前只映射为落笔请求，不直接控制 UV 输出。
 static constexpr int MAIN_BUTTON = 35;
 static constexpr int BOOT_BUTTON = 0;
-static constexpr int STATUS_RGB = 48;
+static constexpr int STATUS_RGB = 17;
+static constexpr int MODE_BUTTON_MANUAL_DRAW = 42;
+static constexpr int MODE_BUTTON_AUTO_DRAW = 41;
+static constexpr int MODE_BUTTON_BLUETOOTH = 40;
 
 // 串口和 USB 固定功能脚，保留给日志、烧录和调试。
 static constexpr int UART_TX = 43;
@@ -47,9 +49,7 @@ static constexpr int USB_D_MINUS = 19;
 // 当前固件未使用的可用脚位。后续启用前必须先更新 pinmap 并说明用途。
 static constexpr int UNUSED_DPI_1 = 18;
 static constexpr int UNUSED_DPI_2 = 8;
-static constexpr int UNUSED_MODE_1 = 42;
-static constexpr int UNUSED_MODE_2 = 41;
-static constexpr int UNUSED_MODE_3 = 40;
+static constexpr int UNUSED_ONBOARD_RGB_IO48 = 48;
 static constexpr int UNUSED_BUZZER = 39;
 static constexpr int UNUSED_OLED_1 = 47;
 static constexpr int UNUSED_OLED_2 = 21;

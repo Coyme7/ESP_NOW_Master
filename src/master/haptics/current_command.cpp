@@ -8,11 +8,13 @@
 namespace {
 
 // 根据目标电流变化方向选择斜率：释放/切断时允许更快卸载。
-float currentRampLimitAPerS(float current_a, float target_a) {
-    const float base_ramp_a_per_s = kMasterXAxis.haptic_current_ramp_a_per_s;
+float currentRampLimitAPerS(float current_a,
+                            float target_a,
+                            const MasterAxisConfig &config) {
+    const float base_ramp_a_per_s = config.current.ramp_a_per_s;
     const float release_ramp_a_per_s =
-        (MASTER_HAPTIC_CURRENT_RELEASE_RAMP_A_PER_S > 0.0f)
-            ? MASTER_HAPTIC_CURRENT_RELEASE_RAMP_A_PER_S
+        (config.current.release_a_per_s > 0.0f)
+            ? config.current.release_a_per_s
             : base_ramp_a_per_s;
     const bool reducing_magnitude = fabsf(target_a) < fabsf(current_a);
     const bool crossing_zero = (current_a * target_a) < 0.0f;
@@ -22,12 +24,15 @@ float currentRampLimitAPerS(float current_a, float target_a) {
 }
 
 // 对目标电流做斜率限制，避免力矩阶跃导致手感冲击或电流环尖峰。
-float rampCurrentCommand(float current_a, float target_a, float dt_s) {
-    const float ramp_a_per_s = currentRampLimitAPerS(current_a, target_a);
+float rampCurrentCommand(float current_a,
+                         float target_a,
+                         float dt_s,
+                         const MasterAxisConfig &config) {
+    const float ramp_a_per_s = currentRampLimitAPerS(current_a, target_a, config);
     if (ramp_a_per_s <= 0.0f) {
         return clampFloat(target_a,
-                          -kMasterXAxis.haptic_current_limit_a,
-                          kMasterXAxis.haptic_current_limit_a);
+                          -config.current.limit_a,
+                          config.current.limit_a);
     }
     if (dt_s <= 0.0f) {
         return current_a;
@@ -37,15 +42,16 @@ float rampCurrentCommand(float current_a, float target_a, float dt_s) {
     const float max_step_a = ramp_a_per_s * bounded_dt_s;
     const float delta_a = clampFloat(target_a - current_a, -max_step_a, max_step_a);
     return clampFloat(current_a + delta_a,
-                      -kMasterXAxis.haptic_current_limit_a,
-                      kMasterXAxis.haptic_current_limit_a);
+                      -config.current.limit_a,
+                      config.current.limit_a);
 }
 
 }  // namespace
 
 // 电流命令状态机：限幅、斜率、模式切换检测和 PID reset 请求都在这里完成。
 MasterCurrentCommandOutput updateMasterCurrentCommand(MasterCurrentCommandState &state,
-                                                      const MasterCurrentCommandInput &input) {
+                                                      const MasterCurrentCommandInput &input,
+                                                      const MasterAxisConfig &config) {
     MasterCurrentCommandOutput output = {};
     // 只有模式切换或安全切断边沿才请求 reset，避免每个周期清 PID 导致电流环无法工作。
     output.request_pid_reset =
@@ -57,7 +63,7 @@ MasterCurrentCommandOutput updateMasterCurrentCommand(MasterCurrentCommandState 
         state.current_command_a = 0.0f;
     } else {
         state.current_command_a =
-            rampCurrentCommand(state.current_command_a, input.target_current_a, input.dt_s);
+            rampCurrentCommand(state.current_command_a, input.target_current_a, input.dt_s, config);
     }
 
     state.previous_boundary_safety_cut = input.boundary_safety_cut;
@@ -65,4 +71,3 @@ MasterCurrentCommandOutput updateMasterCurrentCommand(MasterCurrentCommandState 
     output.current_command_a = state.current_command_a;
     return output;
 }
-

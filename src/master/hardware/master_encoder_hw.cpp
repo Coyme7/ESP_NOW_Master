@@ -6,7 +6,7 @@
 
 #include "common/math/angle_math.h"
 #include "master/config/master_config.h"
-#include "master/hardware/master_board_io.h"
+#include "master/modes/mode_traits.h"
 
 MasterMt6701Sensor::MasterMt6701Sensor(int cs_pin) : reader_(cs_pin) {}
 
@@ -44,27 +44,61 @@ float MasterMt6701Sensor::getSensorAngle() {
 
 namespace {
 
+SPIClass knobXSsiBus(FSPI);
 MasterMt6701Sensor knobSensor(board_pins_master::ENCODER1_CS);
+#if MASTER_ENABLE_X_ENCODER_HW
 bool knobSensorReady = false;
+#endif
 bool knobMotorReadyForEncoder = false;
+
+#if MASTER_ENABLE_Y_ENCODER_HW
+SPIClass knobYSsiBus(HSPI);
+MasterMt6701Sensor yKnobSensor(board_pins_master::ENCODER2_CS);
+bool yKnobSensorReady = false;
+bool yKnobMotorReadyForEncoder = false;
+#endif
 
 }  // namespace
 
 // 初始化 SPI 总线和主机旋钮 MT6701。
+// 轴级开关保持独立：SingleY 调试时不会主动初始化 X 编码器，避免无关硬件影响排查。
 bool setupMasterEncoderHardware() {
-    SPI.begin(board_pins_master::ENCODER1_CLK,
-              board_pins_master::ENCODER1_DO,
-              -1,
-              board_pins_master::ENCODER1_CS);
-    knobSensor.init(&SPI);
-    knobSensorReady = true;
-    Serial.printf("[Master] motor_diag sensor raw=%u angle=%.2fdeg stat=0x%01x frame=0x%06lx spi_mode=%u\n",
-                  static_cast<unsigned int>(knobSensor.rawAngle()),
-                  radToDeg(knobSensor.getMechanicalAngle()),
-                  static_cast<unsigned int>(knobSensor.magneticStatus()),
-                  static_cast<unsigned long>(knobSensor.lastFrame()),
-                  static_cast<unsigned int>(MT6701_SSI_SPI_MODE));
-    return true;
+    bool initialized = false;
+#if MASTER_ENABLE_X_ENCODER_HW
+    if (masterRunModeNeedsEncoderHardware(AXIS_X)) {
+        knobXSsiBus.begin(board_pins_master::ENCODER1_CLK,
+                          board_pins_master::ENCODER1_DO,
+                          -1,
+                          board_pins_master::ENCODER1_CS);
+        knobSensor.init(&knobXSsiBus);
+        knobSensorReady = true;
+        initialized = true;
+        Serial.printf("[Master] motor_diag sensor raw=%u angle=%.2fdeg stat=0x%01x frame=0x%06lx spi_mode=%u\n",
+                      static_cast<unsigned int>(knobSensor.rawAngle()),
+                      radToDeg(knobSensor.getMechanicalAngle()),
+                      static_cast<unsigned int>(knobSensor.magneticStatus()),
+                      static_cast<unsigned long>(knobSensor.lastFrame()),
+                      static_cast<unsigned int>(MT6701_SSI_SPI_MODE));
+    }
+#endif
+#if MASTER_ENABLE_Y_ENCODER_HW
+    if (masterRunModeNeedsEncoderHardware(AXIS_Y)) {
+        knobYSsiBus.begin(board_pins_master::ENCODER2_CLK,
+                          board_pins_master::ENCODER2_DO,
+                          -1,
+                          board_pins_master::ENCODER2_CS);
+        yKnobSensor.init(&knobYSsiBus);
+        yKnobSensorReady = true;
+        initialized = true;
+        Serial.printf("[Master] y_sensor raw=%u angle=%.2fdeg stat=0x%01x frame=0x%06lx spi_mode=%u\n",
+                      static_cast<unsigned int>(yKnobSensor.rawAngle()),
+                      radToDeg(yKnobSensor.getMechanicalAngle()),
+                      static_cast<unsigned int>(yKnobSensor.magneticStatus()),
+                      static_cast<unsigned long>(yKnobSensor.lastFrame()),
+                      static_cast<unsigned int>(MT6701_SSI_SPI_MODE));
+    }
+#endif
+    return initialized;
 }
 
 // 标记电机是否完成 initFOC；编码器可据此决定诊断状态。
@@ -72,14 +106,30 @@ void setMasterKnobMotorReadyForEncoder(bool ready) {
     knobMotorReadyForEncoder = ready;
 }
 
+void setMasterYKnobMotorReadyForEncoder(bool ready) {
+#if MASTER_ENABLE_Y_ENCODER_HW
+    yKnobMotorReadyForEncoder = ready;
+#else
+    (void)ready;
+#endif
+}
+
 // 返回全局主机旋钮 Sensor 对象，供 SimpleFOC 链接。
 MasterMt6701Sensor &masterKnobSensor() {
     return knobSensor;
 }
 
+MasterMt6701Sensor &masterYKnobSensor() {
+#if MASTER_ENABLE_Y_ENCODER_HW
+    return yKnobSensor;
+#else
+    return knobSensor;
+#endif
+}
+
 // 获取编码器诊断快照：原始帧、原始角和磁场状态。
 void getMasterEncoderDiagnostics(uint32_t &frame, uint16_t &raw_angle, uint8_t &magnetic_status) {
-#if MASTER_MOTOR_HW_ENABLED
+#if MASTER_ENABLE_X_ENCODER_HW
     frame = knobSensor.lastFrame();
     raw_angle = knobSensor.rawAngle();
     magnetic_status = knobSensor.magneticStatus();
@@ -90,9 +140,24 @@ void getMasterEncoderDiagnostics(uint32_t &frame, uint16_t &raw_angle, uint8_t &
 #endif
 }
 
+void getMasterYEncoderDiagnostics(uint32_t &frame, uint16_t &raw_angle, uint8_t &magnetic_status) {
+#if MASTER_ENABLE_Y_ENCODER_HW
+    frame = yKnobSensor.lastFrame();
+    raw_angle = yKnobSensor.rawAngle();
+    magnetic_status = yKnobSensor.magneticStatus();
+#else
+    frame = 0;
+    raw_angle = 0;
+    magnetic_status = 0;
+#endif
+}
+
 // 控制层读取入口：把编码器绝对角转成主机控制角度。
 float readMasterKnobAngleDeg() {
-#if MASTER_MOTOR_HW_ENABLED
+#if MASTER_ENABLE_X_ENCODER_HW
+    if (!masterRunModeNeedsEncoderHardware(AXIS_X)) {
+        return 0.0f;
+    }
     if (!knobSensorReady) {
         return 0.0f;
     }
@@ -103,11 +168,30 @@ float readMasterKnobAngleDeg() {
     }
     const float absolute_angle_deg = radToDeg(knobSensor.getMechanicalAngle());
     const float signed_angle_deg =
-        absoluteAngleDegToSignedAngleDeg(absolute_angle_deg, kMasterXAxis.center_deg);
-    return static_cast<float>(MASTER_KNOB_AXIS_SIGN) * signed_angle_deg;
-#elif MASTER_DEMO_QUADRATURE_ENABLED
-    return static_cast<float>(MASTER_KNOB_AXIS_SIGN) *
-           static_cast<float>(readMasterDemoEncoderCount());
+        absoluteAngleDegToSignedAngleDeg(absolute_angle_deg, kMasterXAxis.input.center_deg);
+    return static_cast<float>(kMasterXAxis.input.axis_sign) * signed_angle_deg;
+#else
+    return 0.0f;
+#endif
+}
+
+float readMasterYKnobAngleDeg() {
+#if MASTER_ENABLE_Y_ENCODER_HW
+    if (!masterRunModeNeedsEncoderHardware(AXIS_Y)) {
+        return 0.0f;
+    }
+    if (!yKnobSensorReady) {
+        return 0.0f;
+    }
+    if (!yKnobMotorReadyForEncoder) {
+        // Y 电机未完成 initFOC 时主动刷新，便于独立观察 Y 编码器。
+        // Y 电机 ready 后由 loopFOC 刷新，避免热路径重复读 SSI。
+        yKnobSensor.update();
+    }
+    const float absolute_angle_deg = radToDeg(yKnobSensor.getMechanicalAngle());
+    const float signed_angle_deg =
+        absoluteAngleDegToSignedAngleDeg(absolute_angle_deg, kMasterYAxis.input.center_deg);
+    return static_cast<float>(kMasterYAxis.input.axis_sign) * signed_angle_deg;
 #else
     return 0.0f;
 #endif

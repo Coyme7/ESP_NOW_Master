@@ -3,7 +3,7 @@
 #include "current_sense/hardware_specific/esp32/esp32_adc_driver.h"
 #include "master/config/master_config.h"
 
-#if MASTER_CONTROL_TIMING_DIAG_ENABLED
+#if MASTER_TIMING_DETAIL_DIAG_ENABLED
 extern "C" void recordMasterTimingCurrentSenseUs(uint32_t duration_us) __attribute__((weak));
 #endif
 
@@ -17,7 +17,7 @@ MasterAdc1CurrentSense::MasterAdc1CurrentSense(float shunt_resistor,
       pin_a_(pinA),
       pin_b_(pinB),
       has_phase_c_(pinC != NOT_SET),
-      raw_to_voltage_v_(MASTER_CURRENT_SENSE_ADC_RAW_TO_VOLTAGE_V) {
+      raw_to_voltage_v_(kMasterCurrentSenseHardware.adc_raw_to_voltage_v) {
     offset_ia = 0.0f;
     offset_ib = 0.0f;
     offset_ic = 0.0f;
@@ -95,7 +95,7 @@ int MasterAdc1CurrentSense::driverAlign(float align_voltage) {
 
 // SimpleFOC 每次 loopFOC 会调用这里读取相电流，是控制热路径的一部分。
 PhaseCurrent_s MasterAdc1CurrentSense::getPhaseCurrents() {
-#if MASTER_CONTROL_TIMING_DIAG_ENABLED
+#if MASTER_TIMING_DETAIL_DIAG_ENABLED
     const uint32_t read_start_us = micros();
 #endif
     // 热路径只做两次 ADC 原始采样和线性换算，不做 offset 重算或诊断打印。
@@ -108,7 +108,7 @@ PhaseCurrent_s MasterAdc1CurrentSense::getPhaseCurrents() {
     current.a = (voltage_a - offset_ia) * gain_a;
     current.b = (voltage_b - offset_ib) * gain_b;
     current.c = 0.0f;
-#if MASTER_CONTROL_TIMING_DIAG_ENABLED
+#if MASTER_TIMING_DETAIL_DIAG_ENABLED
     if (recordMasterTimingCurrentSenseUs) {
         recordMasterTimingCurrentSenseUs(micros() - read_start_us);
     }

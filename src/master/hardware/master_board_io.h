@@ -5,5 +5,6 @@
 int masterDriverDisabledLevel();
 void configureMasterSafeOutputs();
 bool readMasterPenButtonDown();
-int32_t readMasterDemoEncoderCount();
-
+bool readMasterManualDrawButtonDown();
+bool readMasterAutoDrawButtonDown();
+bool readMasterBluetoothButtonDown();

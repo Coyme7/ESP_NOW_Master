@@ -1,20 +1,20 @@
 #pragma once
 
-#include "shared_types.h"
+#include "common/protocol/protocol_types.h"
 
-// 运行模式与硬件边界。
-#include "master/config/master_build_options.h"
+// 主机配置聚合入口。
+// 只组合配置类别和 typed config 声明，硬件动作和状态机不在这里实现。
+#include "master/config/build/master_bringup_config.h"
+#include "master/config/diagnostics/master_log_config.h"
 
-// 日志、状态输出和 timing 诊断。
-// 需要放在 build_options 后面，便于日志中引用运行模式和功能开关。
-#include "master/config/master_log_config.h"
+#include "master/config/core/master_axis_config.h"
+#include "master/config/core/master_comm_config.h"
+#include "master/config/core/master_control_config.h"
+#include "master/config/core/master_current_sense_config.h"
+#include "master/config/diagnostics/master_haptic_diagnostic_config.h"
+#include "master/config/haptic/master_haptic_config.h"
+#include "master/config/core/master_motor_config.h"
+#include "master/config/core/master_task_config.h"
 
-// 任务周期、绑核、优先级和栈。
-#include "master/config/master_task_config.h"
-
-// 硬件与算法参数。
-#include "master/config/master_axis_config.h"
-#include "master/config/master_comm_config.h"
-#include "master/config/master_current_sense_config.h"
-#include "master/config/master_haptic_config.h"
-#include "master/config/master_motor_config.h"
+// 必须放在所有分类配置之后。
+#include "master/config/master_config_validate.h"

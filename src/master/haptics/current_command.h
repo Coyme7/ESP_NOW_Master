@@ -2,6 +2,8 @@
 
 #include <stdint.h>
 
+#include "master/config/core/master_axis_config.h"
+
 // 跨周期状态：保存上一周期电流命令和模式，用于斜率限制与模式切换检测。
 struct MasterCurrentCommandState {
     // 上一周期输出到电机层的电流命令，单位 A。
@@ -32,4 +34,5 @@ struct MasterCurrentCommandOutput {
 };
 
 MasterCurrentCommandOutput updateMasterCurrentCommand(MasterCurrentCommandState &state,
-                                                      const MasterCurrentCommandInput &input);
+                                                      const MasterCurrentCommandInput &input,
+                                                      const MasterAxisConfig &config);

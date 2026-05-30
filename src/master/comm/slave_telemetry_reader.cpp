@@ -15,6 +15,18 @@ void recordTelemetryReject(uint16_t fault) {
     addLocalFault(fault);
 }
 
+void recordStaleTelemetryOnly() {
+    // stale 属于链路乱序或旧遥测，只计数，不覆盖状态、不锁存 fault。
+    sysData.link.espnow_recv_reject_count++;
+    sysData.link.espnow_recv_stale_count++;
+}
+
+void recordDuplicateTelemetryOnly() {
+    // duplicate 属于链路重复遥测，只计数，不覆盖状态、不锁存 fault。
+    sysData.link.espnow_recv_reject_count++;
+    sysData.link.espnow_recv_duplicate_count++;
+}
+
 }  // namespace
 
 // 校验并应用从机遥测。只有通过校验且序号更新的包才会刷新 sysData。
@@ -35,8 +47,14 @@ bool applySlaveTelemetryPacket(const SlaveTelemetryPacket &packet, int packet_le
     }
 
     if (sysData.link.last_telemetry_seq != 0 &&
+        packet.seq == sysData.link.last_telemetry_seq) {
+        recordDuplicateTelemetryOnly();
+        return false;
+    }
+
+    if (sysData.link.last_telemetry_seq != 0 &&
         !isNewerSeq(packet.seq, sysData.link.last_telemetry_seq)) {
-        recordTelemetryReject(FAULT_STALE_SEQUENCE);
+        recordStaleTelemetryOnly();
         return false;
     }
 
@@ -44,11 +62,24 @@ bool applySlaveTelemetryPacket(const SlaveTelemetryPacket &packet, int packet_le
     sysData.slave.y_pos = normToPercent(packet.y_actual_norm);
     sysData.slave.angle_deg = normToAngleDeg(packet.x_actual_norm);
     sysData.slave.boundary_hit = (packet.fault_flags & FAULT_BOUNDARY_HIT) != 0;
+    sysData.slave.pen_state = packet.pen_state;
+    sysData.slave.draw_state = packet.draw_state;
+    sysData.slave.draw_progress_pct = packet.draw_progress_pct;
+    sysData.slave.trajectory_task_id = packet.trajectory_task_id;
+    sysData.slave.trajectory_segment_count = packet.trajectory_segment_count;
+    sysData.slave.trajectory_segment_cursor = packet.trajectory_segment_cursor;
+    sysData.slave.trajectory_received_count = packet.trajectory_received_count;
+    sysData.slave.trajectory_status_flags = packet.trajectory_status_flags;
+    sysData.slave.trajectory_received_mask_low = packet.trajectory_received_mask_low;
+    sysData.slave.trajectory_received_mask_high = packet.trajectory_received_mask_high;
+    sysData.slave.uv_block_reasons = packet.uv_block_reasons;
+    sysData.slave.uv_interlock_blocked = packet.uv_block_reasons != UV_BLOCK_NONE;
+    sysData.link.uv_out = packet.uv_out != 0;
     sysData.link.current_mode = packet.mode;
+    sysData.link.link_state = packet.link_state;
     publishProtocolFaults(packet.fault_flags);
     sysData.link.last_telemetry_seq = packet.seq;
     sysData.link.last_rx_us = micros();
     sysData.link.espnow_recv_ok_count++;
     return true;
 }
-

@@ -2,7 +2,12 @@
 
 #include <stdint.h>
 
+#include "master/modes/mode_manager.h"
+
 void startMasterTasks();
+
+// 任务层周期调用入口，内部转发模式切换事件到 master/modes。
+void updateMasterRuntimeModeState(uint32_t now_ms);
 
 uint32_t getMasterControlTimerMissedTicks();
 uint32_t getMasterControlLastDtUs();
@@ -23,15 +28,15 @@ struct MasterControlHealthSnapshot {
     uint32_t step_us;
     // 当前统计窗口最大完整控制步耗时，level 1/2 有效。
     uint32_t step_max_us;
-    // 完整控制步超过目标周期的次数，5kHz 下即 step_us > 200us。
+    // 完整控制步超过 run mode 目标周期的次数。
     uint32_t step_over_period_delta;
-    // 完整控制步超过 75% 目标周期的次数，5kHz 下即 step_us > 150us。
+    // 完整控制步超过 75% 目标周期的次数。
     uint32_t step_over_75pct_delta;
-    // 完整控制步超过 50% 目标周期的次数，5kHz 下即 step_us > 100us。
+    // 完整控制步超过 50% 目标周期的次数。
     uint32_t step_over_50pct_delta;
-    // 兼容旧日志语义：dt 超过 1.5 倍目标周期的次数。
+    // dt 超过 1.5 倍目标周期的次数。
     uint32_t dt_over_1_5_count;
-    // 兼容旧日志语义：dt 超过 2 倍目标周期的次数。
+    // dt 超过 2 倍目标周期的次数。
     uint32_t dt_over_2_count;
     // 定时器通知累计漏 tick 数。
     uint32_t missed_ticks;

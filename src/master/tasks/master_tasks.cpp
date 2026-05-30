@@ -5,8 +5,11 @@
 #include <esp_timer.h>
 
 #include "common/system_state.h"
+#include "common/timing/link_timing.h"
 #include "master/config/master_config.h"
 #include "master/control/master_control.h"
+#include "master/modes/mode_switch.h"
+#include "master/modes/mode_manager.h"
 #include "master/hardware/master_motor_hw.h"
 #include "master/status/master_status.h"
 #include "master/comm/master_transport.h"
@@ -51,7 +54,7 @@ TimingAccumulator timingSensorSpi = {};
 
 // 记录单个阶段耗时；关闭诊断宏时会被编译成空操作。
 void recordTiming(TimingAccumulator &accumulator, uint32_t duration_us) {
-#if MASTER_CONTROL_TIMING_DIAG_ENABLED
+#if MASTER_TIMING_DETAIL_DIAG_ENABLED
     accumulator.last_us = duration_us;
     accumulator.sum_us += duration_us;
     accumulator.count += 1;
@@ -64,7 +67,7 @@ void recordTiming(TimingAccumulator &accumulator, uint32_t duration_us) {
 #endif
 }
 
-#if MASTER_CONTROL_TIMING_DIAG_ENABLED
+#if MASTER_TIMING_DETAIL_DIAG_ENABLED
 // 取出一个统计窗口的 last/avg/max，并清空累计值开始下一窗口。
 MasterTimingStats snapshotTiming(TimingAccumulator &accumulator) {
     const uint32_t count = accumulator.count;
@@ -108,7 +111,7 @@ void IRAM_ATTR controlTimerCallback(void *arg) {
 #endif
 }
 
-// 创建并启动周期定时器，为控制任务提供 200us 节拍。
+// 创建并启动周期定时器，为控制任务提供 run mode 派生节拍。
 bool startControlTimer() {
     if (controlTimerHandle != nullptr) {
         return true;
@@ -124,7 +127,7 @@ bool startControlTimer() {
     timer_args.dispatch_method = ESP_TIMER_TASK;
     const char *dispatch_name = "task";
 #endif
-    timer_args.name = "MasterCtrl5k";
+    timer_args.name = "MasterCtrl";
     timer_args.skip_unhandled_events = true;
 
     esp_err_t err = esp_timer_create(&timer_args, &controlTimerHandle);
@@ -171,7 +174,7 @@ void task_control_loop(void *pvParameters) {
             ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(MASTER_CONTROL_TIMER_TIMEOUT_MS));
         if (pending_ticks == 0) {
             addLocalFault(FAULT_MOTOR_OUTPUT_DISABLED);
-            runMasterMotorOutput(0.0f);
+            runMasterMotorOutput(0.0f, 0.0f);
             previous_us = micros();
             continue;
         }
@@ -183,7 +186,7 @@ void task_control_loop(void *pvParameters) {
 #endif
 
         const uint32_t now_us = micros();
-        // dt 使用实际到达时间计算，而不是固定 200us，便于在偶发抖动时让滤波/斜率按真实时间工作。
+        // dt 使用实际到达时间计算，而不是固定周期，便于在偶发抖动时让滤波/斜率按真实时间工作。
         const uint32_t dt_us = now_us - previous_us;
         previous_us = now_us;
 
@@ -217,14 +220,14 @@ void task_control_loop(void *pvParameters) {
         if (step_us > step_over_50pct_us) {
             controlStepOver50PctCount++;
         }
-#if MASTER_CONTROL_TIMING_DIAG_ENABLED
+#if MASTER_TIMING_DETAIL_DIAG_ENABLED
         recordMasterTimingControlTotalUs(step_us);
 #endif
 #endif
     }
 }
 
-#if MASTER_ESPNOW_ENABLED
+#if MASTER_ENABLE_ESPNOW
 // 通信任务：低频处理遥测并发送主机命令包。
 void task_comm_loop(void *pvParameters) {
     (void)pvParameters;
@@ -232,9 +235,10 @@ void task_comm_loop(void *pvParameters) {
     uint32_t seq = 0;
     TickType_t last_wake = xTaskGetTickCount();
     while (true) {
+        updateMasterRuntimeModeState(millis());
         processMasterTelemetry();
         sendMasterCommand(seq++, micros());
-        // 使用绝对周期发送，避免“处理耗时 + delay”导致 200Hz 发包节奏慢慢漂移。
+        // 使用绝对周期发送，避免“处理耗时 + delay”导致 333Hz 发包节奏慢慢漂移。
         vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(MASTER_COMMAND_PERIOD_MS));
     }
 }
@@ -245,12 +249,20 @@ void task_status_loop(void *pvParameters) {
     (void)pvParameters;
 
     while (true) {
+#if !MASTER_ENABLE_ESPNOW
+        updateMasterRuntimeModeState(millis());
+#endif
+        processMasterDiagShell();
         printMasterStatusLine();
         vTaskDelay(pdMS_TO_TICKS(MASTER_STATUS_LOOP_PERIOD_MS));
     }
 }
 
 }  // namespace
+
+void updateMasterRuntimeModeState(uint32_t now_ms) {
+    updateMasterModeFromSwitches(updateMasterModeSwitches(now_ms), now_ms);
+}
 
 // 返回累计漏 tick 数，判断控制任务是否被阻塞或抢占。
 uint32_t getMasterControlTimerMissedTicks() {
@@ -341,7 +353,7 @@ extern "C" void recordMasterTimingCurrentSenseUs(uint32_t duration_us) {
 // 返回控制各阶段时序统计，用于状态行显示和重构性能对比。
 MasterControlTimingSnapshot getMasterControlTimingSnapshot() {
     MasterControlTimingSnapshot snapshot = {};
-#if MASTER_CONTROL_TIMING_DIAG_ENABLED
+#if MASTER_TIMING_DETAIL_DIAG_ENABLED
     snapshot.control_total = snapshotTiming(timingControlTotal);
     snapshot.control_logic = snapshotTiming(timingControlLogic);
     snapshot.motor_total = snapshotTiming(timingMotorTotal);
@@ -355,7 +367,7 @@ MasterControlTimingSnapshot getMasterControlTimingSnapshot() {
 
 // 创建通信、状态和控制任务；控制任务绑到专用核心并使用最高优先级。
 void startMasterTasks() {
-#if MASTER_ESPNOW_ENABLED
+#if MASTER_ENABLE_ESPNOW
     xTaskCreatePinnedToCore(task_comm_loop,
                             "MasterComm",
                             MASTER_COMM_TASK_STACK_BYTES,

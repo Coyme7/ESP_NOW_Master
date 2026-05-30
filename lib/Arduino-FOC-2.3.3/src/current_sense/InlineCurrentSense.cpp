@@ -1,7 +1,7 @@
 #include "InlineCurrentSense.h"
 #include "communication/SimpleFOCDebug.h"
 
-#include "master/master_config.h"
+#include "master/config/master_config.h"
 
 #if MASTER_CONTROL_TIMING_DIAG_ENABLED
 extern "C" void recordMasterTimingCurrentSenseUs(uint32_t duration_us) __attribute__((weak));
