@@ -46,13 +46,13 @@
 // 同步误差详情行开关。
 // 输出编码器、协议坐标、从机遥测和 XY 同步误差。
 #ifndef MASTER_STATUS_SYNC_LOG_ENABLED
-#define MASTER_STATUS_SYNC_LOG_ENABLED 1
+#define MASTER_STATUS_SYNC_LOG_ENABLED 0
 #endif
 
 // timing 诊断等级：0 关闭，1 整步统计，2 分段统计。
 // level 2 会增加热路径采样点，建议只短时间定位性能问题。
 #ifndef MASTER_TIMING_DIAG_LEVEL
-#define MASTER_TIMING_DIAG_LEVEL (MASTER_ENABLE_TIMING_LOG ? 1 : 0)
+#define MASTER_TIMING_DIAG_LEVEL 2
 #endif
 
 // 整步健康统计开关。
@@ -70,9 +70,9 @@
 #endif
 
 // timing 分段详情行开关。
-// 即使 level=2，也需要显式打开才打印详情行。
+// level=2 默认打印详情行；可单独置 0 只保留采样不开串口输出。
 #ifndef MASTER_STATUS_TIMING_DETAIL_LOG_ENABLED
-#define MASTER_STATUS_TIMING_DETAIL_LOG_ENABLED 0
+#define MASTER_STATUS_TIMING_DETAIL_LOG_ENABLED MASTER_TIMING_DETAIL_DIAG_ENABLED
 #endif
 
 // SimpleFOC 启动诊断日志开关。

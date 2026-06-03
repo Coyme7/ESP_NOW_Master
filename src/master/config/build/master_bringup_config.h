@@ -39,7 +39,7 @@
 // 功能说明：选择主机 run mode、硬件初始化路径和默认控制周期。
 // 默认：SingleX_10kHz；切 SingleY/DualXY 时需同步打开对应 Y 轴硬件开关。
 #ifndef MASTER_RUN_MODE
-#define MASTER_RUN_MODE MASTER_MODE_SINGLE_X_10KHZ_ID
+#define MASTER_RUN_MODE MASTER_MODE_DUAL_XY_5KHZ_ID
 #endif
 
 // == 轴硬件开关 ===============================================================
@@ -53,7 +53,7 @@
 // 启用 Y 轴旋钮电机硬件输出。
 // 0：不编译/初始化 Y 电机驱动；1：允许 Y 电机对象和输出路径存在。
 #ifndef MASTER_ENABLE_Y_MOTOR_HW
-#define MASTER_ENABLE_Y_MOTOR_HW 0
+#define MASTER_ENABLE_Y_MOTOR_HW 1
 #endif
 
 // 启用 X 轴 MT6701 编码器。
@@ -65,7 +65,7 @@
 // 启用 Y 轴 MT6701 编码器。
 // 0：不编译/初始化 Y 编码器；1：允许 Y 编码器对象和读数路径存在。
 #ifndef MASTER_ENABLE_Y_ENCODER_HW
-#define MASTER_ENABLE_Y_ENCODER_HW 0
+#define MASTER_ENABLE_Y_ENCODER_HW 1
 #endif
 
 // 派生的任意电机硬件开关。
@@ -111,7 +111,7 @@
 // 强力矩参数测试。
 // 0：使用常规电流限幅；1：使用强力矩 preset，必须依赖电流采样。
 #ifndef MASTER_ENABLE_STRONG_TORQUE_TEST
-#define MASTER_ENABLE_STRONG_TORQUE_TEST 0
+#define MASTER_ENABLE_STRONG_TORQUE_TEST 1
 #endif
 
 // 电机相序扫描测试。

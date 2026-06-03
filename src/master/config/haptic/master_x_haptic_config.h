@@ -24,7 +24,7 @@ static constexpr MasterHapticWallConfig kMasterXHapticWall = {
     PLOT_X_HALF_RANGE_MM + 5.0f, // X raw 纸面位置安全切断距离，单位 mm。
     1.0f,                        // X 虚拟墙释放迟滞距离，单位 mm。
 #if MASTER_ENABLE_PAPER_WALL_HAPTIC
-    0.03f,  // X 入墙最小目标电流，单位 A。
+    0.01f,  // X 入墙最小目标电流，单位 A。
     0.001f, // X 墙内速度阻尼增益，单位 A/(deg/s)。
     0.08f,  // X 墙内速度阻尼电流限幅，单位 A。
 #else
