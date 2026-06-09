@@ -10,7 +10,7 @@
 #include "master/diagnostics/master_diagnostics.h"
 #include "master/hardware/master_board_io.h"
 #include "master/hardware/master_current_sense_adc1.h"
-#include "master/hardware/master_encoder_hw.h"
+#include "master/hardware/master_mt6701_sensor.h"
 #include "master/modes/mode_traits.h"
 #include "master/tasks/master_tasks.h"
 

@@ -7,7 +7,7 @@
 #include "master/control/master_axis_input.h"
 #include "master/haptics/current_command.h"
 #include "master/haptics/master_haptic_engine.h"
-#include "master/hardware/master_encoder_hw.h"
+#include "master/hardware/master_mt6701_sensor.h"
 #include "master/hardware/master_motor_hw.h"
 #include "master/modes/mode_guard.h"
 #include "master/tasks/master_tasks.h"

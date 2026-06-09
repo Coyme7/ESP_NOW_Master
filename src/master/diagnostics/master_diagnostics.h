@@ -4,7 +4,7 @@
 
 #include "master/config/core/master_motor_config.h"
 #include "master/hardware/master_current_sense_adc1.h"
-#include "master/hardware/master_encoder_hw.h"
+#include "master/hardware/master_mt6701_sensor.h"
 
 // 主机诊断模块共享的硬件上下文。
 // 诊断代码只在启动/显式诊断路径运行，不进入控制热路径。

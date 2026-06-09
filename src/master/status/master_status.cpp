@@ -8,7 +8,7 @@
 #include "master/comm/master_transport.h"
 #include "master/config/master_config.h"
 #include "master/modes/auto_draw/auto_draw_mode.h"
-#include "master/hardware/master_encoder_hw.h"
+#include "master/hardware/master_mt6701_sensor.h"
 #include "master/modes/mode_manager.h"
 #include "master/modes/mode_protocol_map.h"
 #include "master/modes/mode_table.h"

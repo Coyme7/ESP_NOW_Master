@@ -1,4 +1,4 @@
-#include "master/hardware/master_encoder_hw.h"
+#include "master/hardware/master_mt6701_sensor.h"
 
 #include <Arduino.h>
 #include <SPI.h>

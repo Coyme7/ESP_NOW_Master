@@ -42,10 +42,10 @@
 | MCU | ESP32-S3 |
 | 执行电机 | 双轴 BLDC 2208 云台 |
 | 编码器 | MT6701 磁编码器 |
-| 驱动板 | 2 × DengFoc mini 单路驱动 |
-| 控制方式 | SimpleFOC 电压控制位置执行 |
+| 驱动板 | DengV3 双路驱动板 |
+| 控制方式 | SimpleFOC `foc_current` 电流环 + 位置执行 |
 | 绘图输出 | 紫光灯 / UV 笔，当前默认关闭 |
-| 当前重点 | 主机 SingleX/SingleY 10kHz、主机 DualXY 5kHz、从机 SingleX/SingleY 5kHz、从机 DualXY 2kHz、状态回传 |
+| 当前重点 | 主机 SingleX/SingleY 10kHz、主机 DualXY 5kHz、从机 SingleX/SingleY 5kHz、从机 DualXY 4kHz 电流环、状态回传 |
 
 ### 1.3 通信
 
@@ -117,7 +117,7 @@
 | 主端 SingleX / SingleY | 10kHz 单轴压测基准 | `100us / run mode`，用于验证主机 ADC、SSI、current sense 热路径 |
 | 主端 DualXY | 5kHz 双轴验收基准 | `200us / run mode`，双电机后继续观察总热路径长尾 |
 | 从端 SingleX / SingleY | 5kHz 单轴压测基准 | `200us / FOC every 1`，用于单轴硬件热路径验证 |
-| 从端 DualXY | 2kHz 工程验收基准 | `500us / FOC every 1`，双轴阶段优先保证稳定轨迹和低漏拍 |
+| 从端 DualXY | 4kHz 工程验收基准 | `250us / FOC every 1 / move every 1`，DengV3 电流环下直接验收双轴真实硬件 |
 | 从端 DualXY dry-run | 2kHz 逻辑验证基准 | 不初始化真实电机，用于协议、轨迹和安全状态联调 |
 | 从端外环 / 插值 / UV 安全 | 约 1kHz | 轨迹平滑、限速、落笔安全状态机 |
 | ESP-NOW 坐标命令 | 约 333Hz | 不追求 1kHz 高频通信 |
@@ -226,7 +226,7 @@ ESP_NOW_Slave/
 | 4 | 配置宏、日志、注释、结构清理 | 部分完成 |
 | 5 | ESP-NOW 协议语义 | 部分完成 |
 | 6 | 主从 SingleX 单轴同步 | 初步可用 |
-| 7 | 从机 SingleX/SingleY 5kHz 与 DualXY 2kHz 路径收口 | 当前主线 |
+| 7 | 从机 SingleX/SingleY 5kHz 与 DualXY 4kHz 电流环路径收口 | 当前主线 |
 | 8 | fault / safety / UV / pen 隔离 | 部分完成 |
 | 9 | Y 轴、DualXY、UV 绘图、BLE、AUTO_DRAW | 未进入 |
 
@@ -294,12 +294,13 @@ ESP_NOW_Slave/
 - `sysData` 不能长期作为实时发包源。
 - `seq / ack_seq / rxok / rxbad / rxrej` 统计需要继续保持可解释。
 
-### 8.5 从机 SingleX/SingleY 5kHz 与 DualXY 2kHz
+### 8.5 从机 SingleX/SingleY 5kHz 与 DualXY 4kHz 电流环
 
 已完成 / 已明确：
 
 - `200us / 5kHz / FOC every 1` 是 SingleX/SingleY 单轴压测基准。
-- `500us / 2kHz / FOC every 1` 是 DualXY 当前验收基准。
+- `250us / 4kHz / FOC every 1 / move every 1` 是 DualXY 当前真实硬件验收基准。
+- 从机 DengV3 使用 ADC1 两相 inline current sense，启动流程包含 offset 校准、gain sign、raw ADC 和 q/d current/voltage 低频诊断。
 - Level 2 timing 会污染 5kHz 判断，不能只看偶发 max。
 - Level 0 / Level 1 更接近运行负载。
 - 热路径需要拆分 `sensor / loopFOC / move / state publish / timing`。
@@ -331,7 +332,7 @@ ESP_NOW_Slave/
 - 不能按当前状态宣称完整 XY 绘图已完成。
 - Y 轴闭环未完成真实硬件验证。
 - UV / 紫光灯绘图默认关闭。
-- 主机 SingleX/SingleY 10kHz 用于单轴热路径压测，主机 DualXY 5kHz 用于双旋钮验收；从机 SingleX/SingleY 5kHz 用于单轴热路径压测，从机 DualXY 2kHz 用于当前双轴绘图验收。
+- 主机 SingleX/SingleY 10kHz 用于单轴热路径压测，主机 DualXY 5kHz 用于双旋钮验收；从机 SingleX/SingleY 5kHz 用于单轴热路径压测，从机 DualXY 4kHz 用于当前双轴绘图验收。
 - 当前主从业务固件不声明、不初始化、不依赖 PSRAM；不得定义 `BOARD_HAS_PSRAM`，不得启用 `CONFIG_SPIRAM`，不得使用 `ps_malloc` / `MALLOC_CAP_SPIRAM` / 外部 RAM 分配。PSRAM 硬件验证必须走独立 bring-up，不能绑在电机/通信业务固件启动链路里。
 - 主机虚拟墙手感未最终定型。
 - fault 来源仍需继续拆分。
@@ -390,7 +391,7 @@ ESP_NOW_Slave/
 
 | 阶段 | 目标 |
 |---|---|
-| v0.3.x | 主机电流环回归、虚拟墙实测、SingleX 稳定性、从机 SingleX/SingleY 5kHz 与 DualXY 2kHz 分解 |
+| v0.3.x | 主机电流环回归、虚拟墙实测、SingleX 稳定性、从机 SingleX/SingleY 5kHz 与 DualXY 4kHz 电流环分解 |
 | v0.4.x | SingleX 长时间稳定运行、`MasterRtCommand / SlaveRtCommand` 收口、动态误差优化 |
 | v0.5.x | YSensorOnly、YMotorOpenLoop、YClosedLoop、DualXYFramework |
 | v0.6.x | `pen_req / uv_out` 接入、UV interlock、纸面尺寸映射、抬笔 / 落笔状态机 |

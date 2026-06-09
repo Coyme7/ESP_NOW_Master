@@ -1,5 +1,6 @@
 #include "master/modes/mode_switch.h"
 
+#include "master/config/build/master_bringup_config.h"
 #include "master/hardware/master_board_io.h"
 
 namespace {
@@ -38,8 +39,16 @@ bool updateDebouncedButton(DebouncedButton &button, bool raw_down, uint32_t now_
 
 MasterModeSwitchEvents updateMasterModeSwitches(uint32_t now_ms) {
     const bool manual_down = readMasterManualDrawButtonDown();
+#if MASTER_ENABLE_AUTO_DRAW
     const bool auto_down = readMasterAutoDrawButtonDown();
+#else
+    const bool auto_down = false;
+#endif
+#if MASTER_ENABLE_BLE
     const bool bluetooth_down = readMasterBluetoothButtonDown();
+#else
+    const bool bluetooth_down = false;
+#endif
 
     MasterModeSwitchEvents events = {};
     events.manual_pressed = updateDebouncedButton(manualDrawButton, manual_down, now_ms);

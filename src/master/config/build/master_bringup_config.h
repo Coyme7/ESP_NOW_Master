@@ -19,7 +19,7 @@
 // 启用自动绘图模式。
 // 0：AutoDraw 不可进入；1：允许 AutoDraw 发送轨迹命令。
 #ifndef MASTER_ENABLE_AUTO_DRAW
-#define MASTER_ENABLE_AUTO_DRAW MASTER_ENABLE_ESPNOW
+#define MASTER_ENABLE_AUTO_DRAW 0
 #endif
 
 // == 运行能力模式 =============================================================
