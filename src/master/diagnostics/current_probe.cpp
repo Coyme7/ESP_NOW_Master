@@ -9,6 +9,8 @@
 #if MASTER_ENABLE_MOTOR_HW && MASTER_ENABLE_CURRENT_SENSE
 namespace {
 
+constexpr int kMasterCurrentSenseOffsetRailMarginRaw = 32;
+
 // 直接读取 ADC 原始电压，不经过 offset/gain，便于观察硬件采样基线。
 PhaseCurrent_s sampleMasterCurrentSenseVoltagesOnce(MasterMotorDiagnosticsContext &context) {
     const float saved_offset_ia = context.current_sense.offset_ia;
@@ -43,6 +45,12 @@ void primeMasterCurrentSenseAdc(MasterMotorDiagnosticsContext &context) {
         (void)context.current_sense.readRawA();
         (void)context.current_sense.readRawB();
     }
+}
+
+bool isMasterCurrentSenseOffsetRawValid(int raw) {
+    const int max_raw = static_cast<int>(kMasterCurrentSenseHardware.adc_raw_max);
+    return raw > kMasterCurrentSenseOffsetRailMarginRaw &&
+           raw < (max_raw - kMasterCurrentSenseOffsetRailMarginRaw);
 }
 
 #if MASTER_ENABLE_CURRENT_SENSE_DIAG_TEST
@@ -100,12 +108,13 @@ void runMasterCurrentProbePoint(MasterMotorDiagnosticsContext &context,
 #endif
 
 // 电机不输出时采样平均值作为 offset，后续电流 = (电压 - offset) * gain。
-void calibrateMasterCurrentSenseOffsets(MasterMotorDiagnosticsContext &context) {
+bool calibrateMasterCurrentSenseOffsets(MasterMotorDiagnosticsContext &context) {
 #if MASTER_ENABLE_MOTOR_HW && MASTER_ENABLE_CURRENT_SENSE
     const float saved_gain_a = context.current_sense.gain_a;
     const float saved_gain_b = context.current_sense.gain_b;
     const float saved_gain_c = context.current_sense.gain_c;
     const float saved_offset_ic = context.current_sense.offset_ic;
+    const uint32_t errors_before = context.current_sense.readErrorCount();
     const uint32_t calibration_reads =
         (kMasterCurrentSenseDiag.offset_reads > 0)
             ? kMasterCurrentSenseDiag.offset_reads
@@ -126,15 +135,44 @@ void calibrateMasterCurrentSenseOffsets(MasterMotorDiagnosticsContext &context) 
 
     float sum_a_v = 0.0f;
     float sum_b_v = 0.0f;
+    uint32_t valid_reads = 0;
+    uint32_t rejected_reads = 0;
     for (uint32_t i = 0; i < calibration_reads; ++i) {
-        const PhaseCurrent_s voltage = sampleMasterCurrentSenseVoltagesOnce(context);
-        sum_a_v += voltage.a;
-        sum_b_v += voltage.b;
+        const int raw_a = context.current_sense.readRawA();
+        const int raw_b = context.current_sense.readRawB();
+        if (!isMasterCurrentSenseOffsetRawValid(raw_a) ||
+            !isMasterCurrentSenseOffsetRawValid(raw_b)) {
+            rejected_reads++;
+            delay(1);
+            continue;
+        }
+        sum_a_v += static_cast<float>(raw_a) *
+                   kMasterCurrentSenseHardware.adc_raw_to_voltage_v;
+        sum_b_v += static_cast<float>(raw_b) *
+                   kMasterCurrentSenseHardware.adc_raw_to_voltage_v;
+        valid_reads++;
         delay(1);
     }
 
-    context.current_sense.offset_ia = sum_a_v / static_cast<float>(calibration_reads);
-    context.current_sense.offset_ib = sum_b_v / static_cast<float>(calibration_reads);
+    const uint32_t errors_after = context.current_sense.readErrorCount();
+    if (valid_reads == 0 || errors_after != errors_before) {
+        context.current_sense.offset_ia = 0.0f;
+        context.current_sense.offset_ib = 0.0f;
+        context.current_sense.offset_ic = saved_offset_ic;
+        context.current_sense.gain_a = saved_gain_a;
+        context.current_sense.gain_b = saved_gain_b;
+        context.current_sense.gain_c = saved_gain_c;
+        context.driver.setPwm(0.0f, 0.0f, 0.0f);
+        context.driver.disable();
+        Serial.printf("[Master] motor_diag current_sense offset_cal failed valid=%lu rejected=%lu adc_errors=%lu\n",
+                      static_cast<unsigned long>(valid_reads),
+                      static_cast<unsigned long>(rejected_reads),
+                      static_cast<unsigned long>(errors_after));
+        return false;
+    }
+
+    context.current_sense.offset_ia = sum_a_v / static_cast<float>(valid_reads);
+    context.current_sense.offset_ib = sum_b_v / static_cast<float>(valid_reads);
     context.current_sense.offset_ic = saved_offset_ic;
     context.current_sense.gain_a = saved_gain_a;
     context.current_sense.gain_b = saved_gain_b;
@@ -142,18 +180,36 @@ void calibrateMasterCurrentSenseOffsets(MasterMotorDiagnosticsContext &context) 
 
     const int runtime_raw_adc_a = context.current_sense.readRawA();
     const int runtime_raw_adc_b = context.current_sense.readRawB();
+    if (context.current_sense.readErrorCount() != errors_after) {
+        context.current_sense.offset_ia = 0.0f;
+        context.current_sense.offset_ib = 0.0f;
+        context.current_sense.offset_ic = saved_offset_ic;
+        context.current_sense.gain_a = saved_gain_a;
+        context.current_sense.gain_b = saved_gain_b;
+        context.current_sense.gain_c = saved_gain_c;
+        context.driver.setPwm(0.0f, 0.0f, 0.0f);
+        context.driver.disable();
+        Serial.printf("[Master] motor_diag current_sense offset_cal failed postcheck adc_errors=%lu\n",
+                      static_cast<unsigned long>(context.current_sense.readErrorCount()));
+        return false;
+    }
     context.driver.setPwm(0.0f, 0.0f, 0.0f);
     context.driver.disable();
 
-    Serial.printf("[Master] motor_diag current_sense offset_cal mode=driver_enabled_pwm0 settle=%ums samples=%lu ia=%.4fV ib=%.4fV raw_adc=%d,%d\n",
+    Serial.printf("[Master] motor_diag current_sense offset_cal mode=driver_enabled_pwm0 settle=%ums samples=%lu valid=%lu rejected=%lu ia=%.4fV ib=%.4fV raw_adc=%d,%d adc_errors=%lu\n",
                   static_cast<unsigned int>(kMasterCurrentSenseDiag.offset_settle_ms),
                   static_cast<unsigned long>(calibration_reads),
+                  static_cast<unsigned long>(valid_reads),
+                  static_cast<unsigned long>(rejected_reads),
                   context.current_sense.offset_ia,
                   context.current_sense.offset_ib,
                   runtime_raw_adc_a,
-                  runtime_raw_adc_b);
+                  runtime_raw_adc_b,
+                  static_cast<unsigned long>(context.current_sense.readErrorCount()));
+    return true;
 #else
     (void)context;
+    return true;
 #endif
 }
 

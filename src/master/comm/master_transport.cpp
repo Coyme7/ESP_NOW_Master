@@ -4,6 +4,7 @@
 #include <WiFi.h>
 #include <esp_now.h>
 #include <esp_wifi.h>
+#include <esp_idf_version.h>
 
 #include "common/protocol/packet_codec.h"
 #include "common/state/system_state.h"
@@ -42,8 +43,7 @@ bool autoDrawModeRequestPending = false;
 bool autoDrawModeAccepted = false;
 
 // ESP-NOW 发送完成回调：只记录成功/失败，不做复杂计算。
-void onDataSent(const uint8_t *mac, esp_now_send_status_t status) {
-    (void)mac;
+void handleDataSent(esp_now_send_status_t status) {
     // ESP-NOW 发送回调只记录结果，不重发、不打印、不触碰电机。
     // 真正的链路判断交给状态行中的 send_ok/send_fail 和 ack 滞后来观察。
     if (status == ESP_NOW_SEND_SUCCESS) {
@@ -55,10 +55,20 @@ void onDataSent(const uint8_t *mac, esp_now_send_status_t status) {
     }
 }
 
-// ESP-NOW 接收回调：只处理从机遥测包，并把解析工作交给 telemetry reader。
-void onDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len) {
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+void onDataSent(const esp_now_send_info_t *txInfo, esp_now_send_status_t status) {
+    (void)txInfo;
+    handleDataSent(status);
+}
+#else
+void onDataSent(const uint8_t *mac, esp_now_send_status_t status) {
     (void)mac;
+    handleDataSent(status);
+}
+#endif
 
+// ESP-NOW 接收回调：只处理从机遥测包，并把解析工作交给 telemetry reader。
+void handleDataRecv(const uint8_t *incomingData, int len) {
     portENTER_CRITICAL(&telemetryPendingMux);
     rxPacketLen = (incomingData != nullptr) ? len : 0;
     if (rxPacketLen > 0 && rxPacketLen <= static_cast<int>(sizeof(rxPendingPacket))) {
@@ -67,6 +77,18 @@ void onDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len) {
     rxPending = true;
     portEXIT_CRITICAL(&telemetryPendingMux);
 }
+
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+void onDataRecv(const esp_now_recv_info_t *recvInfo, const uint8_t *incomingData, int len) {
+    (void)recvInfo;
+    handleDataRecv(incomingData, len);
+}
+#else
+void onDataRecv(const uint8_t *mac, const uint8_t *incomingData, int len) {
+    (void)mac;
+    handleDataRecv(incomingData, len);
+}
+#endif
 
 }  // namespace
 

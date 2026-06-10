@@ -208,7 +208,12 @@ bool initMasterMotorAxis(MasterMotorAxisInitContext &axis) {
         addLocalFault(FAULT_MOTOR_OUTPUT_DISABLED);
         return false;
     }
-    calibrateMasterCurrentSenseOffsets(axis.diagnostics);
+    if (!calibrateMasterCurrentSenseOffsets(axis.diagnostics)) {
+        axis.driver.disable();
+        knobHardwareStatus = axis.status.current_sense_init_failed;
+        addLocalFault(FAULT_MOTOR_OUTPUT_DISABLED);
+        return false;
+    }
     axis.current_sense.gain_a *= (axis.current_gain_sign_a < 0) ? -1.0f : 1.0f;
     axis.current_sense.gain_b *= (axis.current_gain_sign_b < 0) ? -1.0f : 1.0f;
     Serial.printf("[Master] motor_diag axis=%s current_sense offsets ia=%.3fV ib=%.3fV gain_a=%.2f gain_b=%.2f sign_a=%d sign_b=%d\n",
@@ -444,6 +449,16 @@ void runMasterMotorOutput(float x_target_current_a, float y_target_current_a) {
         const uint32_t after_move_us = micros();
 #endif
         xKnobMotor.loopFOC();
+        if (xKnobCurrentSense.readFaulted()) {
+            xKnobMotor.target = 0.0f;
+            xKnobMotor.current_sp = 0.0f;
+            xKnobMotor.PID_current_q.reset();
+            xKnobMotor.PID_current_d.reset();
+            xKnobDriver.disable();
+            xKnobMotorReady = false;
+            knobHardwareStatus = "x_adc_read_failed";
+            addLocalFault(FAULT_MOTOR_OUTPUT_DISABLED);
+        }
 #if MASTER_TIMING_DETAIL_DIAG_ENABLED
         const uint32_t after_loop_foc_us = micros();
         move_total_us += after_move_us - move_start_us;
@@ -466,6 +481,16 @@ void runMasterMotorOutput(float x_target_current_a, float y_target_current_a) {
         const uint32_t after_move_us = micros();
 #endif
         yKnobMotor.loopFOC();
+        if (yKnobCurrentSense.readFaulted()) {
+            yKnobMotor.target = 0.0f;
+            yKnobMotor.current_sp = 0.0f;
+            yKnobMotor.PID_current_q.reset();
+            yKnobMotor.PID_current_d.reset();
+            yKnobDriver.disable();
+            yKnobMotorReady = false;
+            knobHardwareStatus = "y_adc_read_failed";
+            addLocalFault(FAULT_MOTOR_OUTPUT_DISABLED);
+        }
 #if MASTER_TIMING_DETAIL_DIAG_ENABLED
         const uint32_t after_loop_foc_us = micros();
         move_total_us += after_move_us - move_start_us;
