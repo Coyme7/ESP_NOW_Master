@@ -126,34 +126,10 @@ const char *masterTorqueControllerName() {
 #endif
 }
 
-const char *masterCurrentPhaseName(MasterCurrentPhase phase) {
-    switch (phase) {
-        case MasterCurrentPhase::U:
-            return "U";
-        case MasterCurrentPhase::V:
-            return "V";
-        case MasterCurrentPhase::W:
-            return "W";
-        default:
-            return "?";
-    }
-}
-
 float clampMasterAxisCurrent(float target_current_a, const MasterAxisConfig &axis_config) {
     return clampFloat(target_current_a,
                       -axis_config.current.limit_a,
                       axis_config.current.limit_a);
-}
-
-constexpr bool masterCurrentSenseDiagModeEnabled() {
-    return MASTER_ENABLE_CURRENT_SENSE && MASTER_ENABLE_CURRENT_SENSE_DIAG_TEST;
-}
-
-constexpr bool masterCurrentSenseDiagAxisSelected(AxisId axis) {
-    const uint8_t axis_mask =
-        (axis == AXIS_Y) ? MASTER_CURRENT_SENSE_DIAG_AXIS_Y
-                         : MASTER_CURRENT_SENSE_DIAG_AXIS_X;
-    return (MASTER_CURRENT_SENSE_DIAG_AXIS_MASK & axis_mask) != 0;
 }
 
 struct MasterMotorAxisStatusNames {
@@ -163,7 +139,6 @@ struct MasterMotorAxisStatusNames {
     const char *current_sense_init;
     const char *current_sense_init_failed;
     const char *current_sense_ready;
-    const char *current_sense_diag_only;
     const char *current_sense_skipped;
     const char *motor_init;
     const char *init_foc;
@@ -182,23 +157,11 @@ struct MasterMotorAxisInitContext {
     int current_pin_b;
     int current_gain_sign_a;
     int current_gain_sign_b;
-    bool diagnostics_only;
     bool &ready_flag;
     void (*set_encoder_ready)(bool);
     MasterMotorDiagnosticsContext diagnostics;
     MasterMotorAxisStatusNames status;
 };
-
-void disableMasterMotorAxisAfterDiagnostics(MasterMotorAxisInitContext &axis) {
-    axis.motor.target = 0.0f;
-    axis.motor.current_sp = 0.0f;
-    axis.motor.PID_current_q.reset();
-    axis.motor.PID_current_d.reset();
-    axis.driver.setPwm(0.0f, 0.0f, 0.0f);
-    axis.driver.disable();
-    axis.ready_flag = false;
-    axis.set_encoder_ready(false);
-}
 
 bool initMasterMotorAxis(MasterMotorAxisInitContext &axis) {
     knobHardwareStatus = axis.status.driver_init;
@@ -252,42 +215,18 @@ bool initMasterMotorAxis(MasterMotorAxisInitContext &axis) {
         addLocalFault(FAULT_MOTOR_OUTPUT_DISABLED);
         return false;
     }
-    if (!axis.current_sense.phaseMapEnabled()) {
-        axis.current_sense.gain_a *= (axis.current_gain_sign_a < 0) ? -1.0f : 1.0f;
-        axis.current_sense.gain_b *= (axis.current_gain_sign_b < 0) ? -1.0f : 1.0f;
-    }
-    Serial.printf("[Master] motor_diag axis=%s current_sense offsets ia=%.3fV ib=%.3fV gain_a=%.2f gain_b=%.2f sign_a=%d sign_b=%d sign_mode=%s\n",
+    axis.current_sense.gain_a *= (axis.current_gain_sign_a < 0) ? -1.0f : 1.0f;
+    axis.current_sense.gain_b *= (axis.current_gain_sign_b < 0) ? -1.0f : 1.0f;
+    Serial.printf("[Master] motor_diag axis=%s current_sense offsets ia=%.3fV ib=%.3fV gain_a=%.2f gain_b=%.2f sign_a=%d sign_b=%d\n",
                   axis.axis_name,
                   axis.current_sense.offset_ia,
                   axis.current_sense.offset_ib,
                   axis.current_sense.gain_a,
                   axis.current_sense.gain_b,
                   axis.current_gain_sign_a,
-                  axis.current_gain_sign_b,
-                  axis.current_sense.phaseMapEnabled() ? "phase_map" : "gain");
-    if (axis.current_sense.phaseMapEnabled()) {
-        const MasterCurrentPhaseMap &phase_map = axis.current_sense.phaseMap();
-        Serial.printf("[Master] motor_diag axis=%s current_sense phase_map raw_a=%s sign=%.0f raw_b=%s sign=%.0f mode=uvw_remap\n",
-                      axis.axis_name,
-                      masterCurrentPhaseName(phase_map.raw_a_phase),
-                      phase_map.raw_a_sign,
-                      masterCurrentPhaseName(phase_map.raw_b_phase),
-                      phase_map.raw_b_sign);
-    }
-    logMasterCurrentSenseLifecycleSample(axis.diagnostics, "after_offset_cal");
+                  axis.current_gain_sign_b);
     axis.motor.linkCurrentSense(&axis.current_sense);
     knobHardwareStatus = axis.status.current_sense_ready;
-#if MASTER_ENABLE_CURRENT_SENSE_DIAG_TEST
-    if (axis.diagnostics_only) {
-        knobHardwareStatus = axis.status.current_sense_diag_only;
-        if (runMasterDiagnosticsBeforeFoc(axis.diagnostics)) {
-            disableMasterMotorAxisAfterDiagnostics(axis);
-            Serial.printf("[Master] motor_diag axis=%s current_sense raw_static complete; skip motor.init/initFOC; motor disabled\n",
-                          axis.axis_name);
-            return true;
-        }
-    }
-#endif
 #else
     knobHardwareStatus = axis.status.current_sense_skipped;
     Serial.printf("[Master] motor_diag axis=%s current_sense skipped for voltage torque bring-up\n",
@@ -296,8 +235,6 @@ bool initMasterMotorAxis(MasterMotorAxisInitContext &axis) {
 
     knobHardwareStatus = axis.status.motor_init;
     axis.motor.init();
-    reapplyMasterCurrentSenseCenterPwmAndLog(axis.diagnostics,
-                                             "after_motor_init_center_pwm");
 
     runMasterDiagnosticsAfterMotorInit(axis.diagnostics);
     knobHardwareStatus = axis.status.init_foc;
@@ -311,15 +248,6 @@ bool initMasterMotorAxis(MasterMotorAxisInitContext &axis) {
     }
     axis.ready_flag = true;
     axis.set_encoder_ready(true);
-#if MASTER_ENABLE_CURRENT_SENSE_DIAG_TEST
-    if (axis.diagnostics_only) {
-        runMasterDiagnosticsAfterFoc(axis.diagnostics);
-        disableMasterMotorAxisAfterDiagnostics(axis);
-        knobHardwareStatus = axis.status.current_sense_diag_only;
-        Serial.printf("[Master] motor_diag axis=%s current_sense diag_only complete; motor disabled\n",
-                      axis.axis_name);
-    }
-#endif
     return true;
 }
 #endif
@@ -364,12 +292,8 @@ bool setupMasterMotorHardware() {
 
 #if MASTER_ENABLE_X_MOTOR_HW || MASTER_ENABLE_Y_MOTOR_HW
     bool any_motor_ready = false;
-    bool current_sense_diag_ran = false;
 #if MASTER_ENABLE_X_MOTOR_HW
-    if (masterRunModeNeedsMotorHardware(AXIS_X) &&
-        (!masterCurrentSenseDiagModeEnabled() ||
-         masterCurrentSenseDiagAxisSelected(AXIS_X))) {
-        xKnobCurrentSense.setPhaseMap(kMasterXCurrentPhaseMap);
+    if (masterRunModeNeedsMotorHardware(AXIS_X)) {
         MasterMotorDiagnosticsContext x_diagnostics_context = makeMasterXDiagnosticsContext();
         MasterMotorAxisInitContext x_axis = {
             "X",
@@ -383,7 +307,6 @@ bool setupMasterMotorHardware() {
             board_pins_master::MOTOR1_CURRENT_B,
             kMasterXCurrentSenseAxis.gain_sign_a,
             kMasterXCurrentSenseAxis.gain_sign_b,
-            masterCurrentSenseDiagModeEnabled(),
             xKnobMotorReady,
             setMasterKnobMotorReadyForEncoder,
             x_diagnostics_context,
@@ -394,7 +317,6 @@ bool setupMasterMotorHardware() {
                 "current_sense_init",
                 "current_sense_init_failed",
                 "current_sense_ready",
-                "current_sense_diag_only",
                 "current_sense_skipped",
                 "motor_init",
                 "init_foc",
@@ -404,18 +326,12 @@ bool setupMasterMotorHardware() {
         if (!initMasterMotorAxis(x_axis)) {
             return false;
         }
-        if (masterCurrentSenseDiagModeEnabled()) {
-            current_sense_diag_ran = true;
-        } else {
-            any_motor_ready = true;
-        }
+        any_motor_ready = true;
     }
 #endif
 
 #if MASTER_ENABLE_Y_MOTOR_HW
-    if (masterRunModeNeedsMotorHardware(AXIS_Y) &&
-        (!masterCurrentSenseDiagModeEnabled() ||
-         masterCurrentSenseDiagAxisSelected(AXIS_Y))) {
+    if (masterRunModeNeedsMotorHardware(AXIS_Y)) {
         MasterMotorDiagnosticsContext y_diagnostics_context = makeMasterYDiagnosticsContext();
         MasterMotorAxisInitContext y_axis = {
             "Y",
@@ -429,7 +345,6 @@ bool setupMasterMotorHardware() {
             board_pins_master::MOTOR2_CURRENT_B,
             kMasterYCurrentSenseAxis.gain_sign_a,
             kMasterYCurrentSenseAxis.gain_sign_b,
-            masterCurrentSenseDiagModeEnabled(),
             yKnobMotorReady,
             setMasterYKnobMotorReadyForEncoder,
             y_diagnostics_context,
@@ -440,7 +355,6 @@ bool setupMasterMotorHardware() {
                 "y_current_sense_init",
                 "y_current_sense_init_failed",
                 "y_current_sense_ready",
-                "y_current_sense_diag_only",
                 "y_current_sense_skipped",
                 "y_motor_init",
                 "y_init_foc",
@@ -450,19 +364,9 @@ bool setupMasterMotorHardware() {
         if (!initMasterMotorAxis(y_axis)) {
             return false;
         }
-        if (masterCurrentSenseDiagModeEnabled()) {
-            current_sense_diag_ran = true;
-        } else {
-            any_motor_ready = true;
-        }
+        any_motor_ready = true;
     }
 #endif
-
-    if (current_sense_diag_ran) {
-        knobHardwareStatus = "current_sense_diag_only";
-        addLocalFault(FAULT_MOTOR_OUTPUT_DISABLED);
-        return false;
-    }
 
     if (!any_motor_ready) {
         knobHardwareStatus = "motor_not_required";
