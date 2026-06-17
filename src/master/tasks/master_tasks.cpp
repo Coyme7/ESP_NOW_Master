@@ -174,7 +174,7 @@ void task_control_loop(void *pvParameters) {
             ulTaskNotifyTake(pdTRUE, pdMS_TO_TICKS(MASTER_CONTROL_TIMER_TIMEOUT_MS));
         if (pending_ticks == 0) {
             addLocalFault(FAULT_MOTOR_OUTPUT_DISABLED);
-            runMasterMotorOutput(0.0f, 0.0f);
+            runMasterMotorOutput(0.0f, 0.0f, true);
             previous_us = micros();
             continue;
         }
@@ -204,7 +204,7 @@ void task_control_loop(void *pvParameters) {
         // level 1 只测完整控制步耗时；level 2 复用同一次采样，同时记录分段耗时。
         const uint32_t control_step_start_us = micros();
 #endif
-        runMasterControlStep(static_cast<float>(dt_us) * 0.000001f);
+        runMasterFastCurrentLoop();
 #if MASTER_TIMING_STEP_DIAG_ENABLED
         const uint32_t step_us = micros() - control_step_start_us;
         controlStepLastUs = step_us;
@@ -224,6 +224,24 @@ void task_control_loop(void *pvParameters) {
         recordMasterTimingControlTotalUs(step_us);
 #endif
 #endif
+    }
+}
+
+// 低一优先级 1kHz 外环任务：计算 haptic、速度估计、current command 和状态发布。
+void task_outer_loop(void *pvParameters) {
+    (void)pvParameters;
+
+    const TickType_t period_ticks =
+        pdMS_TO_TICKS(MASTER_OUTER_LOOP_PERIOD_US / 1000UL);
+    TickType_t last_wake = xTaskGetTickCount();
+    uint32_t previous_us = micros() - MASTER_OUTER_LOOP_PERIOD_US;
+
+    while (true) {
+        const uint32_t now_us = micros();
+        const uint32_t dt_us = now_us - previous_us;
+        previous_us = now_us;
+        runMasterOuterLoopSlow(static_cast<float>(dt_us) * 0.000001f);
+        vTaskDelayUntil(&last_wake, period_ticks);
     }
 }
 
@@ -385,6 +403,13 @@ void startMasterTasks() {
                             NULL,
                             MASTER_IO_CORE);
 #endif
+    xTaskCreatePinnedToCore(task_outer_loop,
+                            "MasterOuter",
+                            MASTER_OUTER_LOOP_TASK_STACK_BYTES,
+                            NULL,
+                            MASTER_OUTER_LOOP_TASK_PRIORITY,
+                            NULL,
+                            MASTER_CONTROL_CORE);
     xTaskCreatePinnedToCore(task_control_loop,
                             "MasterControl",
                             MASTER_CONTROL_TASK_STACK_BYTES,

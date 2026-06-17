@@ -33,14 +33,14 @@ constexpr MasterMotorFocConfig kMasterCurrentSenseStrongPreset = {
 
     {
         {
-            3.40f,  // q 轴电流环 P 增益。
+            2.40f,  // q 轴电流环 P 增益。
             0.0f,   // q 轴电流环 I 增益。
             0.0f,   // q 轴电流环 D 增益。
             500.0f, // q 轴电流环输出变化斜率限制。
         },
 
         {
-            3.40f,  // d 轴电流环 P 增益。
+            2.40f,  // d 轴电流环 P 增益。
             0.0f,   // d 轴电流环 I 增益。
             0.0f,   // d 轴电流环 D 增益。
             500.0f, // d 轴电流环输出变化斜率限制。

@@ -49,7 +49,7 @@
 #define MASTER_STATUS_SYNC_LOG_ENABLED 0
 #endif
 
-// timing 诊断等级：0 关闭，1 整步统计，2 分段统计。
+// timing 诊断等级：0 关闭，1 整步统计，2 分段统计。    
 // level 2 会增加热路径采样点，建议只短时间定位性能问题。
 #ifndef MASTER_TIMING_DIAG_LEVEL
 #define MASTER_TIMING_DIAG_LEVEL 2

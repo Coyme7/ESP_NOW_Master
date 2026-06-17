@@ -44,13 +44,9 @@ static_assert(!(MASTER_ENABLE_STRONG_TORQUE_TEST &&
                 (!MASTER_ENABLE_CURRENT_SENSE || !MASTER_ENABLE_FORCE_FEEDBACK)),
               "strong torque test requires current sense and force feedback");
 
-static_assert(!(MASTER_ENABLE_CURRENT_SENSE_DIAG_TEST && !MASTER_ENABLE_CURRENT_SENSE),
-              "current sense diagnostic requires MASTER_ENABLE_CURRENT_SENSE");
-
 static_assert((MASTER_ENABLE_FIXED_CURRENT_TEST +
                MASTER_ENABLE_ZERO_CURRENT_TEST +
-               MASTER_ENABLE_PHASE_SCAN_TEST +
-               MASTER_ENABLE_CURRENT_SENSE_DIAG_TEST) <= 1,
+               MASTER_ENABLE_PHASE_SCAN_TEST) <= 1,
               "dangerous motor tests are mutually exclusive");
 
 static_assert(!(MASTER_ENABLE_ZERO_CURRENT_DC_TEST && !MASTER_ENABLE_ZERO_CURRENT_TEST),
@@ -68,6 +64,22 @@ static_assert((1000UL % MASTER_CONTROL_LOOP_PERIOD_US) == 0,
               "MASTER_CONTROL_LOOP_PERIOD_US must divide 1000us FreeRTOS tick");
 static_assert(MASTER_CONTROL_LOOP_PERIOD_US == masterRunModeNominalPeriodUs(),
               "MASTER_RUN_MODE frequency must match MASTER_CONTROL_LOOP_PERIOD_US");
+static_assert(MASTER_OUTER_LOOP_PERIOD_US >= MASTER_CONTROL_LOOP_PERIOD_US,
+              "MASTER_OUTER_LOOP_PERIOD_US must not be shorter than control loop period");
+static_assert((MASTER_OUTER_LOOP_PERIOD_US % MASTER_CONTROL_LOOP_PERIOD_US) == 0,
+              "MASTER_OUTER_LOOP_PERIOD_US must be divisible by control loop period");
+static_assert(MASTER_OUTER_LOOP_EVERY_N_STEPS > 0,
+              "MASTER_OUTER_LOOP_EVERY_N_STEPS must be greater than 0");
+static_assert(MASTER_OUTER_LOOP_PERIOD_US >= 1000UL,
+              "MASTER_OUTER_LOOP_PERIOD_US must not be shorter than FreeRTOS tick");
+static_assert((MASTER_OUTER_LOOP_PERIOD_US % 1000UL) == 0,
+              "MASTER_OUTER_LOOP_PERIOD_US must be divisible by 1000us FreeRTOS tick");
+static_assert(MASTER_OUTER_LOOP_STALE_TIMEOUT_US >= MASTER_OUTER_LOOP_PERIOD_US,
+              "MASTER_OUTER_LOOP_STALE_TIMEOUT_US must not be shorter than outer loop period");
+static_assert((MASTER_OUTER_LOOP_STALE_TIMEOUT_US % MASTER_CONTROL_LOOP_PERIOD_US) == 0,
+              "MASTER_OUTER_LOOP_STALE_TIMEOUT_US must be divisible by control loop period");
+static_assert(MASTER_OUTER_LOOP_STALE_EVERY_N_STEPS > 0,
+              "MASTER_OUTER_LOOP_STALE_EVERY_N_STEPS must be greater than 0");
 
 static_assert(MASTER_CONTROL_TIMER_PERIOD_US >= MASTER_CONTROL_LOOP_PERIOD_US,
               "MASTER_CONTROL_TIMER_PERIOD_US must not be shorter than control loop period");
@@ -78,8 +90,23 @@ static_assert(MASTER_CONTROL_TIMER_TIMEOUT_MS > 0,
 static_assert(MASTER_CONTROL_STATUS_PUBLISH_DIV <= 65535,
               "MASTER_CONTROL_STATUS_PUBLISH_DIV must fit uint16_t");
 
+static_assert(kMasterCurrentSenseAdcSinglePoolFrames > 0,
+              "single-axis ADC DMA pool frames must be greater than 0");
+static_assert(kMasterCurrentSenseAdcDualPoolFrames > 0,
+              "dual-axis ADC DMA pool frames must be greater than 0");
+static_assert(kMasterCurrentSenseAdcStartupWarmupFrames > 0,
+              "ADC DMA startup warmup frames must be greater than 0");
+static_assert(kMasterCurrentSenseAdcStartupGraceControlCycles > 0,
+              "ADC DMA startup grace cycles must be greater than 0");
+static_assert(MASTER_ADC_DMA_RUNTIME_FAULT_LATCH_ENABLED == 0 ||
+                  MASTER_ADC_DMA_RUNTIME_FAULT_LATCH_ENABLED == 1,
+              "MASTER_ADC_DMA_RUNTIME_FAULT_LATCH_ENABLED must be 0 or 1");
+
 static_assert(MASTER_TIMING_DIAG_LEVEL >= 0 && MASTER_TIMING_DIAG_LEVEL <= 2,
               "MASTER_TIMING_DIAG_LEVEL must be 0, 1, or 2");
+static_assert(MASTER_DIRECT_CURRENT_SETPOINT_ENABLED == 0 ||
+                  MASTER_DIRECT_CURRENT_SETPOINT_ENABLED == 1,
+              "MASTER_DIRECT_CURRENT_SETPOINT_ENABLED must be 0 or 1");
 
 static_assert(MASTER_KNOB_HALF_RANGE_DEG > 0.0f,
               "MASTER_KNOB_HALF_RANGE_DEG must be greater than 0");

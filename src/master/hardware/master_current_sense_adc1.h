@@ -3,7 +3,9 @@
 #include <Arduino.h>
 #include <SimpleFOC.h>
 
-// 电流采样适配类：用 ESP32-S3 ADC1 两相采样对接 SimpleFOC InlineCurrentSense 接口。
+#include "master/config/types/master_current_sense_types.h"
+#include "master/hardware/master_adc1_dma_sampler.h"
+
 class MasterAdc1CurrentSense : public InlineCurrentSense {
 public:
     MasterAdc1CurrentSense(float shunt_resistor,
@@ -18,22 +20,21 @@ public:
 
     int readRawA() const;
     int readRawB() const;
+    bool waitNextRawPair(uint32_t &last_sequence,
+                         uint32_t timeout_ms,
+                         int &raw_a,
+                         int &raw_b) const;
     uint32_t readErrorCount() const;
     uint16_t consecutiveReadErrors() const;
     bool readFaulted() const;
 
 private:
-    static bool gpioToAdc1Channel(int pin, uint8_t &channel);
-    bool readChannel(uint8_t channel, int &raw) const;
-
     int pin_a_ = NOT_SET;
     int pin_b_ = NOT_SET;
     bool has_phase_c_ = false;
-    uint8_t chan_a_ = 0;
-    uint8_t chan_b_ = 0;
+    MasterAdc1DmaSlot slot_a_ = MASTER_ADC1_DMA_SLOT_X_A;
+    MasterAdc1DmaSlot slot_b_ = MASTER_ADC1_DMA_SLOT_X_B;
     float raw_to_voltage_v_ = 0.0f;
     mutable int last_raw_a_ = 0;
     mutable int last_raw_b_ = 0;
-    mutable volatile uint32_t read_error_count_ = 0;
-    volatile uint16_t consecutive_read_errors_ = 0;
 };

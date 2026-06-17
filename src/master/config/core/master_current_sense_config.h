@@ -14,8 +14,43 @@ static constexpr MasterCurrentSenseHardwareConfig kMasterCurrentSenseHardware = 
     true,           // 是否跳过 SimpleFOC driverAlign。
 };
 
-// 连续四个完整 A/B 采样周期失败后禁用对应轴；主机 5kHz 下约为 0.8ms。
+// 连续四个控制周期没有任何有效帧时判定无帧故障；主机 5kHz 下约为 0.8ms。
+// 已有有效帧后的 stale 判定放宽到 10ms，避开启动任务对齐和日志阶段的短暂调度空洞。
 static constexpr uint16_t kMasterCurrentSenseAdcConsecutiveErrorLimit = 4U;
+static constexpr uint32_t kMasterCurrentSenseAdcStaleFaultUs = 10000U;
+
+#ifndef MASTER_ADC_DMA_SINGLE_POOL_FRAMES
+#define MASTER_ADC_DMA_SINGLE_POOL_FRAMES 8U
+#endif
+
+#ifndef MASTER_ADC_DMA_DUAL_POOL_FRAMES
+#define MASTER_ADC_DMA_DUAL_POOL_FRAMES 128U
+#endif
+
+#ifndef MASTER_ADC_DMA_STARTUP_WARMUP_FRAMES
+#define MASTER_ADC_DMA_STARTUP_WARMUP_FRAMES 4U
+#endif
+
+#ifndef MASTER_ADC_DMA_STARTUP_GRACE_CONTROL_CYCLES
+#define MASTER_ADC_DMA_STARTUP_GRACE_CONTROL_CYCLES 8U
+#endif
+
+#ifndef MASTER_ADC_DMA_RUNTIME_FAULT_LATCH_ENABLED
+#define MASTER_ADC_DMA_RUNTIME_FAULT_LATCH_ENABLED 1
+#endif
+
+// ADC DMA 内部池深度和启动对齐参数。
+// DualXY 5kHz 一帧固定约 200us；这里的 128 是池深，不改变单帧 conv_frame_size。
+static constexpr uint32_t kMasterCurrentSenseAdcSinglePoolFrames =
+    MASTER_ADC_DMA_SINGLE_POOL_FRAMES;
+static constexpr uint32_t kMasterCurrentSenseAdcDualPoolFrames =
+    MASTER_ADC_DMA_DUAL_POOL_FRAMES;
+static constexpr uint8_t kMasterCurrentSenseAdcStartupWarmupFrames =
+    MASTER_ADC_DMA_STARTUP_WARMUP_FRAMES;
+static constexpr uint16_t kMasterCurrentSenseAdcStartupGraceControlCycles =
+    MASTER_ADC_DMA_STARTUP_GRACE_CONTROL_CYCLES;
+static constexpr bool kMasterCurrentSenseAdcRuntimeFaultLatchEnabled =
+    MASTER_ADC_DMA_RUNTIME_FAULT_LATCH_ENABLED != 0;
 
 // X/Y 轴电流采样方向符号。
 // Y 默认复用已验证 X 符号；实机 bring-up 后可单独改 kMasterYCurrentSenseAxis。
@@ -25,17 +60,6 @@ static constexpr MasterCurrentSenseAxisConfig kMasterXCurrentSenseAxis = {
 };
 
 static constexpr MasterCurrentSenseAxisConfig kMasterYCurrentSenseAxis = {
-    kMasterXCurrentSenseAxis.gain_sign_a, // Y A 相采样方向符号。
-    kMasterXCurrentSenseAxis.gain_sign_b, // Y B 相采样方向符号。
-};
-
-// 电流采样诊断和 offset 校准参数。
-// 这些延时只在启动诊断/校准路径使用，不进入控制热路径。
-static constexpr MasterCurrentSenseDiagConfig kMasterCurrentSenseDiag = {
-    0.30f, // 诊断注入电压，单位 V。
-    5U,    // 早期采样等待时间，单位 ms。
-    80U,   // 稳定采样等待时间，单位 ms。
-    8U,    // offset 校准前 ADC 预读次数。
-    1000U, // offset 校准平均次数。
-    80U,   // offset 校准前等待时间，单位 ms。
+    1, // Y A 相采样方向符号。
+    -1, // Y B 相采样方向符号。
 };

@@ -1,4 +1,7 @@
 #pragma once
 
-// 控制步骤在 MASTER_RUN_MODE 派生周期任务中调用。
-void runMasterControlStep(float dt_s);
+// 5kHz 快环：只做 ADC fault gate、硬件输出和 SimpleFOC loopFOC()。
+void runMasterFastCurrentLoop();
+
+// 1kHz 慢环：读取缓存角度，计算 haptic、速度估计、current command 和状态发布。
+void runMasterOuterLoopSlow(float dt_s);

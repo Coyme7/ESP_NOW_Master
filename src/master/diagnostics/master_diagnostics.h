@@ -2,6 +2,7 @@
 
 #include <SimpleFOC.h>
 
+#include "common/math/axis_math.h"
 #include "master/config/core/master_motor_config.h"
 #include "master/hardware/master_current_sense_adc1.h"
 #include "master/hardware/master_encoder_hw.h"
@@ -10,15 +11,13 @@
 // 诊断代码只在启动/显式诊断路径运行，不进入控制热路径。
 // 诊断上下文用引用持有硬件对象，避免诊断函数依赖全局变量过多。
 struct MasterMotorDiagnosticsContext {
+    AxisId axis;
     BLDCMotor &motor;
     BLDCDriver3PWM &driver;
     MasterAdc1CurrentSense &current_sense;
     MasterMt6701Sensor &sensor;
     const MasterMotorFocConfig &motor_config;
 };
-
-// current_sense diag_only 会在 initFOC 前占用启动流程，返回 true 表示调用方应保持电机禁用。
-bool runMasterDiagnosticsBeforeFoc(MasterMotorDiagnosticsContext &context);
 
 // 开环相位扫描需要在 motor.init() 后、initFOC() 前运行。
 void runMasterDiagnosticsAfterMotorInit(MasterMotorDiagnosticsContext &context);

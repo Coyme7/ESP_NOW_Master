@@ -1,8 +1,10 @@
 #include <Arduino.h>
 
+#include "common/system_state.h"
 #include "common/timing/link_timing.h"
 #include "master/config/master_config.h"
 #include "master/comm/master_transport.h"
+#include "master/hardware/master_adc1_dma_sampler.h"
 #include "master/hardware/master_hardware.h"
 #include "master/modes/mode_traits.h"
 #include "master/modes/mode_table.h"
@@ -24,7 +26,14 @@ extern "C" void app_main() {
 
     // MASTER_ENABLE_MOTOR_HW=0 时这里只锁存 FAULT_MOTOR_OUTPUT_DISABLED；
     // MASTER_ENABLE_MOTOR_HW=1 时返回值表示驱动、电流采样和 initFOC 是否全部通过。
-    const bool motor_ready = setupMasterMotorHardware();
+    const bool adc_dma_started = startMasterAdc1DmaSampler();
+    const bool adc_dma_ready = adc_dma_started &&
+                               waitForMasterAdc1DmaFirstFrame(100U);
+    if (masterAdc1DmaSamplerRequired() && !adc_dma_ready) {
+        addLocalFault(FAULT_MOTOR_OUTPUT_DISABLED);
+    }
+
+    const bool motor_ready = adc_dma_ready ? setupMasterMotorHardware() : false;
 
     // ESP-NOW 初始化在任务启动前完成；单机旋钮/电流环测试时默认关闭，避免 Wi-Fi
     // 和发送失败回调干扰控制热路径定时。
@@ -64,12 +73,30 @@ extern "C" void app_main() {
 
     // boot 行给第一次上电调试使用：确认硬件输出是否启用、旋钮角度范围、
     // 控制周期和通信周期是否与 Instruction.md 中的测试说明一致。
-    Serial.printf("[Master] boot run_mode=%s run_path=%s default_app=%s motor_hw=%u hw_status=%s force_pen=%u espnow=%u x_center=%.1fdeg y_center=%.1fdeg x_range=%.0f..%.0fdeg y_range=%.0f..%.0fdeg control=%luus comm=%lums x_vlim=%.2fV y_vlim=%.2fV x_ilim=%.3fA y_ilim=%.3fA\n",
+    const MasterAdc1DmaHealthSnapshot adc_health = snapshotMasterAdc1DmaHealth();
+    Serial.printf("[Master] boot run_mode=%s run_path=%s default_app=%s motor_hw=%u hw_status=%s adc_dma=%u/%u/%u adc_reason=%u runtime_latch=%u seq=%lu age=%luus max_age=%luus stale_limit=%luus frame=%luB pool_frames=%lu pool_bytes=%lu per_ch=%u invalid=%lu empty=%lu overflow=%lu stale=%lu force_pen=%u espnow=%u x_center=%.1fdeg y_center=%.1fdeg x_range=%.0f..%.0fdeg y_range=%.0f..%.0fdeg control=%luus comm=%lums x_vlim=%.2fV y_vlim=%.2fV x_ilim=%.3fA y_ilim=%.3fA\n",
                   masterRunModeName(),
                   masterRunPathName(),
                   masterStartupAppModeName(),
                   motor_ready ? 1 : 0,
                   getMasterMotorHardwareStatus(),
+                  adc_health.required ? 1 : 0,
+                  adc_health.started ? 1 : 0,
+                  adc_health.first_frame_ready ? 1 : 0,
+                  static_cast<unsigned int>(adc_health.fault_reason),
+                  adc_health.runtime_fault_latch_enabled ? 1 : 0,
+                  static_cast<unsigned long>(adc_health.frame_sequence),
+                  static_cast<unsigned long>(adc_health.latest_age_us),
+                  static_cast<unsigned long>(adc_health.latest_age_max_us),
+                  static_cast<unsigned long>(adc_health.stale_fault_us),
+                  static_cast<unsigned long>(adc_health.frame_bytes),
+                  static_cast<unsigned long>(adc_health.pool_frames),
+                  static_cast<unsigned long>(adc_health.pool_bytes),
+                  static_cast<unsigned int>(adc_health.samples_per_active_channel),
+                  static_cast<unsigned long>(adc_health.invalid_frames),
+                  static_cast<unsigned long>(adc_health.read_empty_count),
+                  static_cast<unsigned long>(adc_health.pool_overflows),
+                  static_cast<unsigned long>(adc_health.stale_control_cycles),
                   MASTER_ENABLE_FORCE_PEN_DOWN_TEST ? 1 : 0,
                   MASTER_ENABLE_ESPNOW ? 1 : 0,
                   kMasterXAxis.input.center_deg,
@@ -88,5 +115,6 @@ extern "C" void app_main() {
 
     // 从这里开始进入多任务模型：
     // Core 1 运行控制热路径，Core 0 运行 ESP-NOW 与串口状态任务。
+    armMasterAdc1DmaControlStartupGrace();
     startMasterTasks();
 }

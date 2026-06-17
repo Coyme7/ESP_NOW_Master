@@ -132,12 +132,6 @@
 #define MASTER_ENABLE_ZERO_CURRENT_DC_TEST 0
 #endif
 
-// 电流采样诊断测试。
-// 0：关闭电流采样诊断；1：只做采样诊断并保持电机禁用。
-#ifndef MASTER_ENABLE_CURRENT_SENSE_DIAG_TEST
-#define MASTER_ENABLE_CURRENT_SENSE_DIAG_TEST 0
-#endif
-
 // 强制落笔命令测试。
 // 0：由模式逻辑控制落笔；1：启动后强制发送落笔语义。
 #ifndef MASTER_ENABLE_FORCE_PEN_DOWN_TEST

@@ -8,7 +8,7 @@
 // SimpleFOC Sensor 适配层放在各节点 hardware 内。
 
 #ifndef MT6701_SSI_CLOCK_HZ
-#define MT6701_SSI_CLOCK_HZ 4000000
+#define MT6701_SSI_CLOCK_HZ 8000000
 #endif
 
 #ifndef MT6701_SSI_SPI_MODE

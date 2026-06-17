@@ -4,6 +4,23 @@
 
 #include "master/config/core/master_axis_config.h"
 
+// 力反馈预计算参数：把配置派生常量从周期计算中移出。
+struct MasterHapticPrecomputedConfig {
+    float paper_half_range_mm;
+    float current_limit_a;
+    float wall_hard_limit_mm;
+    float wall_start_mm;
+    float wall_safety_cut_mm;
+    float wall_release_hyst_mm;
+    float wall_inv_zone_mm;
+    float wall_min_factor;
+    float wall_direction_sign;
+    float center_direction_sign;
+    float center_deadband_deg_s;
+    float center_inv_speed_span;
+    float center_inv_vel_scale;
+};
+
 // 力反馈内部状态：墙位置滤波和墙接触迟滞需要跨周期保存。
 struct MasterHapticEngineState {
     // 用于墙深度计算的轻微滤波纸面轴位置，单位 mm。
@@ -12,6 +29,10 @@ struct MasterHapticEngineState {
     bool has_filtered_wall_axis;
     // 墙接触方向：1 高端墙，-1 低端墙，0 未接触。
     int8_t wall_contact_side;
+    // 预计算参数是否有效。
+    bool has_precomputed_config;
+    // 当前轴配置和纸面半幅派生出的热路径常量。
+    MasterHapticPrecomputedConfig precomputed_config;
 };
 
 // 力反馈输入：控制角、滤波速度、轴坐标、轴纸面半幅和本周期 dt。

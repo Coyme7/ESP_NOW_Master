@@ -8,6 +8,7 @@
 #include "master/comm/master_transport.h"
 #include "master/config/master_config.h"
 #include "master/modes/auto_draw/auto_draw_mode.h"
+#include "master/hardware/master_adc1_dma_sampler.h"
 #include "master/hardware/master_encoder_hw.h"
 #include "master/modes/mode_manager.h"
 #include "master/modes/mode_protocol_map.h"
@@ -176,6 +177,7 @@ void printMasterLinkDiag() {
 
 void printMasterStatsDiag() {
     const MasterControlHealthSnapshot health = getMasterControlHealthSnapshot();
+    const MasterAdc1DmaHealthSnapshot adc = snapshotMasterAdc1DmaHealth();
     Serial.printf("[MasterDiag] stats diag=%u dt=%lu/%luus step=%lu/%luus miss=%lu over_period=%lu over75=%lu over50=%lu dt_over_1_5=%lu dt_over_2=%lu\n",
                   static_cast<unsigned int>(health.diag_level),
                   static_cast<unsigned long>(health.last_dt_us),
@@ -188,6 +190,30 @@ void printMasterStatsDiag() {
                   static_cast<unsigned long>(health.step_over_50pct_delta),
                   static_cast<unsigned long>(health.dt_over_1_5_count),
                   static_cast<unsigned long>(health.dt_over_2_count));
+    Serial.printf("[MasterDiag] adc_dma required=%u started=%u first=%u fault=%u runtime_latch=%u reason=%u seq=%lu age=%luus max_age=%luus fault_age=%luus stale_limit=%luus frame=%luB pool_frames=%lu pool_bytes=%lu per_ch=%u invalid=%lu samples=%lu read_err=%lu empty=%lu overflow=%lu stale=%lu consumer=%lu/%luus\n",
+                  adc.required ? 1 : 0,
+                  adc.started ? 1 : 0,
+                  adc.first_frame_ready ? 1 : 0,
+                  adc.fault_latched ? 1 : 0,
+                  adc.runtime_fault_latch_enabled ? 1 : 0,
+                  static_cast<unsigned int>(adc.fault_reason),
+                  static_cast<unsigned long>(adc.frame_sequence),
+                  static_cast<unsigned long>(adc.latest_age_us),
+                  static_cast<unsigned long>(adc.latest_age_max_us),
+                  static_cast<unsigned long>(adc.fault_age_us),
+                  static_cast<unsigned long>(adc.stale_fault_us),
+                  static_cast<unsigned long>(adc.frame_bytes),
+                  static_cast<unsigned long>(adc.pool_frames),
+                  static_cast<unsigned long>(adc.pool_bytes),
+                  static_cast<unsigned int>(adc.samples_per_active_channel),
+                  static_cast<unsigned long>(adc.invalid_frames),
+                  static_cast<unsigned long>(adc.invalid_samples),
+                  static_cast<unsigned long>(adc.read_errors),
+                  static_cast<unsigned long>(adc.read_empty_count),
+                  static_cast<unsigned long>(adc.pool_overflows),
+                  static_cast<unsigned long>(adc.stale_control_cycles),
+                  static_cast<unsigned long>(adc.consumer_last_us),
+                  static_cast<unsigned long>(adc.consumer_max_us));
 }
 
 void printMasterUvDiag() {
@@ -314,6 +340,7 @@ void printMasterStatusLine() {
     const uint16_t active_faults = getActiveFaultFlags();
     const uint16_t latched_faults = getLatchedFaultFlags();
     const MasterRuntimeModeSnapshot runtime = getMasterRuntimeModeSnapshot();
+    const MasterAdc1DmaHealthSnapshot adc_health = snapshotMasterAdc1DmaHealth();
 
     Serial.println("[Master]");
     Serial.println("  mode:");
@@ -385,6 +412,30 @@ void printMasterStatusLine() {
                   MASTER_ENABLE_FORCE_FEEDBACK ? 1 : 0,
                   MASTER_ENABLE_STRONG_TORQUE_TEST ? 1 : 0,
                   MASTER_TIMING_DIAG_LEVEL);
+    Serial.printf("    adc_dma: required=%u started=%u first=%u fault=%u runtime_latch=%u reason=%u seq=%lu age=%luus max_age=%luus fault_age=%luus stale_limit=%luus frame=%luB pool_frames=%lu pool_bytes=%lu per_ch=%u invalid=%lu samples=%lu read_err=%lu empty=%lu overflow=%lu stale=%lu consumer=%lu/%luus\n",
+                  adc_health.required ? 1 : 0,
+                  adc_health.started ? 1 : 0,
+                  adc_health.first_frame_ready ? 1 : 0,
+                  adc_health.fault_latched ? 1 : 0,
+                  adc_health.runtime_fault_latch_enabled ? 1 : 0,
+                  static_cast<unsigned int>(adc_health.fault_reason),
+                  static_cast<unsigned long>(adc_health.frame_sequence),
+                  static_cast<unsigned long>(adc_health.latest_age_us),
+                  static_cast<unsigned long>(adc_health.latest_age_max_us),
+                  static_cast<unsigned long>(adc_health.fault_age_us),
+                  static_cast<unsigned long>(adc_health.stale_fault_us),
+                  static_cast<unsigned long>(adc_health.frame_bytes),
+                  static_cast<unsigned long>(adc_health.pool_frames),
+                  static_cast<unsigned long>(adc_health.pool_bytes),
+                  static_cast<unsigned int>(adc_health.samples_per_active_channel),
+                  static_cast<unsigned long>(adc_health.invalid_frames),
+                  static_cast<unsigned long>(adc_health.invalid_samples),
+                  static_cast<unsigned long>(adc_health.read_errors),
+                  static_cast<unsigned long>(adc_health.read_empty_count),
+                  static_cast<unsigned long>(adc_health.pool_overflows),
+                  static_cast<unsigned long>(adc_health.stale_control_cycles),
+                  static_cast<unsigned long>(adc_health.consumer_last_us),
+                  static_cast<unsigned long>(adc_health.consumer_max_us));
     Serial.printf("    x: hw=%u cmd=%.3fA iq=%.3fA id=%.3fA\n",
                   MASTER_ENABLE_X_MOTOR_HW ? 1 : 0,
                   sysData.master.target_current_a,
@@ -453,7 +504,7 @@ void printMasterStatusLine() {
                   static_cast<unsigned long>(timing.motor_total.last_us),
                   static_cast<unsigned long>(timing.motor_total.avg_us),
                   static_cast<unsigned long>(timing.motor_total.max_us));
-    Serial.printf("      move=%lu/%lu/%lu foc=%lu/%lu/%lu current=%lu/%lu/%lu sensor=%lu/%lu/%lu\n",
+    Serial.printf("      move=%lu/%lu/%lu foc=%lu/%lu/%lu adc_sample=%lu/%lu/%lu sensor_spi=%lu/%lu/%lu adc_dma_consumer=%lu/%lu\n",
                   static_cast<unsigned long>(timing.motor_move.last_us),
                   static_cast<unsigned long>(timing.motor_move.avg_us),
                   static_cast<unsigned long>(timing.motor_move.max_us),
@@ -465,7 +516,9 @@ void printMasterStatusLine() {
                   static_cast<unsigned long>(timing.current_sense.max_us),
                   static_cast<unsigned long>(timing.sensor_spi.last_us),
                   static_cast<unsigned long>(timing.sensor_spi.avg_us),
-                  static_cast<unsigned long>(timing.sensor_spi.max_us));
+                  static_cast<unsigned long>(timing.sensor_spi.max_us),
+                  static_cast<unsigned long>(adc_health.consumer_last_us),
+                  static_cast<unsigned long>(adc_health.consumer_max_us));
 #endif
 #endif
     Serial.println();
