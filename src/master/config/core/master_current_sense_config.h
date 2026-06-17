@@ -11,7 +11,7 @@ static constexpr MasterCurrentSenseHardwareConfig kMasterCurrentSenseHardware = 
     3.10f,          // ADC 满量程电压，单位 V。
     4095.0f,        // ADC raw 最大值。
     3.10f / 4095.0f, // ADC raw 到电压换算系数，单位 V/count。
-    true,           // 是否跳过 SimpleFOC driverAlign。
+    false,           // 是否跳过 SimpleFOC driverAlign。
 };
 
 // X/Y 轴电流采样方向符号。
