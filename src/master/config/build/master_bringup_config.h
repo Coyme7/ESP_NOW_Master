@@ -74,6 +74,12 @@
 #define MASTER_ENABLE_MOTOR_HW (MASTER_ENABLE_X_MOTOR_HW || MASTER_ENABLE_Y_MOTOR_HW)
 #endif
 
+// 双轴 initFOC 初始化顺序。
+// 0：X initFOC first，Y initFOC second；1：Y initFOC first，X initFOC second。
+#ifndef MASTER_INIT_FOC_Y_FIRST
+#define MASTER_INIT_FOC_Y_FIRST 1
+#endif
+
 // == 触觉与电流环 =============================================================
 
 // 启用 DengFoc 高侧电流采样。

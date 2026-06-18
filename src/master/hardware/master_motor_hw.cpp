@@ -132,6 +132,96 @@ float clampMasterAxisCurrent(float target_current_a, const MasterAxisConfig &axi
                       axis_config.current.limit_a);
 }
 
+const char *masterMotorInitOrderName() {
+    return MASTER_INIT_FOC_Y_FIRST ? "Y,X" : "X,Y";
+}
+
+void resetMasterMotorRuntimeState(BLDCMotor &motor) {
+    motor.target = 0.0f;
+    motor.current_sp = 0.0f;
+    motor.current.q = 0.0f;
+    motor.current.d = 0.0f;
+    motor.voltage.q = 0.0f;
+    motor.voltage.d = 0.0f;
+    motor.PID_current_q.reset();
+    motor.PID_current_d.reset();
+}
+
+void forceMasterDriverPwmZeroIfReady(BLDCDriver3PWM &driver) {
+    if (driver.initialized) {
+        driver.setPwm(0.0f, 0.0f, 0.0f);
+    }
+}
+
+void forceMasterAllPwmZeroAndSharedDisable() {
+#if MASTER_ENABLE_X_MOTOR_HW
+    forceMasterDriverPwmZeroIfReady(xKnobDriver);
+#endif
+#if MASTER_ENABLE_Y_MOTOR_HW
+    forceMasterDriverPwmZeroIfReady(yKnobDriver);
+#endif
+    digitalWrite(board_pins_master::MOTOR_DRIVER_EN, masterDriverDisabledLevel());
+}
+
+void disableMasterAxisOutput(BLDCMotor &motor,
+                             BLDCDriver3PWM &driver,
+                             bool &ready_flag,
+                             void (*set_encoder_ready)(bool)) {
+    resetMasterMotorRuntimeState(motor);
+    if (driver.initialized) {
+        motor.disable();
+    }
+    ready_flag = false;
+    set_encoder_ready(false);
+}
+
+void clearMasterPublishedMotorOutputs() {
+    sysData.master.target_current_a = 0.0f;
+    sysData.master.y_target_current_a = 0.0f;
+    sysData.master.current_q_a = 0.0f;
+    sysData.master.current_d_a = 0.0f;
+    sysData.master.y_current_q_a = 0.0f;
+    sysData.master.y_current_d_a = 0.0f;
+    sysData.master.voltage_q_v = 0.0f;
+    sysData.master.voltage_d_v = 0.0f;
+    sysData.master.y_voltage_q_v = 0.0f;
+    sysData.master.y_voltage_d_v = 0.0f;
+}
+
+void disableAllMasterMotorOutputs(const char *status) {
+#if MASTER_ENABLE_X_MOTOR_HW
+    disableMasterAxisOutput(xKnobMotor,
+                            xKnobDriver,
+                            xKnobMotorReady,
+                            setMasterKnobMotorReadyForEncoder);
+#endif
+#if MASTER_ENABLE_Y_MOTOR_HW
+    disableMasterAxisOutput(yKnobMotor,
+                            yKnobDriver,
+                            yKnobMotorReady,
+                            setMasterYKnobMotorReadyForEncoder);
+#endif
+    forceMasterAllPwmZeroAndSharedDisable();
+    clearMasterPublishedMotorOutputs();
+    if (status != nullptr) {
+        knobHardwareStatus = status;
+    }
+}
+
+void enableReadyMasterMotorDriversAtZero() {
+    forceMasterAllPwmZeroAndSharedDisable();
+#if MASTER_ENABLE_X_MOTOR_HW
+    if (xKnobMotorReady && xKnobDriver.initialized) {
+        xKnobDriver.enable();
+    }
+#endif
+#if MASTER_ENABLE_Y_MOTOR_HW
+    if (yKnobMotorReady && yKnobDriver.initialized) {
+        yKnobDriver.enable();
+    }
+#endif
+}
+
 struct MasterMotorAxisStatusNames {
     const char *driver_init;
     const char *driver_init_failed;
@@ -164,6 +254,7 @@ struct MasterMotorAxisInitContext {
 };
 
 bool initMasterMotorAxis(MasterMotorAxisInitContext &axis) {
+    forceMasterAllPwmZeroAndSharedDisable();
     knobHardwareStatus = axis.status.driver_init;
     axis.driver.enable_active_high = MASTER_DRIVER_ENABLE_ACTIVE_HIGH != 0;
     axis.driver.voltage_power_supply = axis.motor_config.supply_voltage_v;
@@ -176,8 +267,7 @@ bool initMasterMotorAxis(MasterMotorAxisInitContext &axis) {
                   axis.motor_config.align_voltage_v,
                   static_cast<unsigned int>(MASTER_MOTOR_POLE_PAIRS));
     if (!axis.driver.init()) {
-        digitalWrite(board_pins_master::MOTOR_DRIVER_EN, masterDriverDisabledLevel());
-        knobHardwareStatus = axis.status.driver_init_failed;
+        disableAllMasterMotorOutputs(axis.status.driver_init_failed);
         addLocalFault(FAULT_MOTOR_OUTPUT_DISABLED);
         return false;
     }
@@ -204,14 +294,13 @@ bool initMasterMotorAxis(MasterMotorAxisInitContext &axis) {
                   kMasterCurrentSenseHardware.adc_raw_to_voltage_v,
                   kMasterCurrentSenseHardware.skip_align ? 1 : 0);
     if (!axis.current_sense.init()) {
-        axis.driver.disable();
-        knobHardwareStatus = axis.status.current_sense_init_failed;
+        disableAllMasterMotorOutputs(axis.status.current_sense_init_failed);
         addLocalFault(FAULT_MOTOR_OUTPUT_DISABLED);
         return false;
     }
+    forceMasterAllPwmZeroAndSharedDisable();
     if (!calibrateMasterCurrentSenseOffsets(axis.diagnostics)) {
-        axis.driver.disable();
-        knobHardwareStatus = axis.status.current_sense_init_failed;
+        disableAllMasterMotorOutputs(axis.status.current_sense_init_failed);
         addLocalFault(FAULT_MOTOR_OUTPUT_DISABLED);
         return false;
     }
@@ -234,20 +323,119 @@ bool initMasterMotorAxis(MasterMotorAxisInitContext &axis) {
 #endif
 
     knobHardwareStatus = axis.status.motor_init;
+    forceMasterAllPwmZeroAndSharedDisable();
     axis.motor.init();
 
     runMasterDiagnosticsAfterMotorInit(axis.diagnostics);
     knobHardwareStatus = axis.status.init_foc;
+    forceMasterAllPwmZeroAndSharedDisable();
+    axis.motor.enable();
     if (!axis.motor.initFOC()) {
-        axis.driver.disable();
-        knobHardwareStatus = axis.status.init_foc_failed;
+        disableAllMasterMotorOutputs(axis.status.init_foc_failed);
         Serial.printf("[Master] motor_diag axis=%s initFOC failed; keep motor disabled\n",
                       axis.axis_name);
         addLocalFault(FAULT_MOTOR_OUTPUT_DISABLED);
         return false;
     }
+    if (!axis.motor.pp_check_result) {
+        axis.motor.motor_status = FOCMotorStatus::motor_calib_failed;
+        disableAllMasterMotorOutputs(axis.status.init_foc_failed);
+        Serial.printf("[Master] motor_diag axis=%s pp_check failed; keep both motors disabled\n",
+                      axis.axis_name);
+        addLocalFault(FAULT_MOTOR_OUTPUT_DISABLED);
+        return false;
+    }
+    forceMasterAllPwmZeroAndSharedDisable();
     axis.ready_flag = true;
     axis.set_encoder_ready(true);
+    return true;
+}
+
+bool initMasterXAxisIfRequired(bool &any_motor_ready) {
+#if MASTER_ENABLE_X_MOTOR_HW
+    if (!masterRunModeNeedsMotorHardware(AXIS_X)) {
+        return true;
+    }
+    MasterMotorDiagnosticsContext x_diagnostics_context = makeMasterXDiagnosticsContext();
+    MasterMotorAxisInitContext x_axis = {
+        "X",
+        xKnobMotor,
+        xKnobDriver,
+        xKnobCurrentSense,
+        masterKnobSensor(),
+        kMasterXAxis,
+        kMasterXMotorFoc,
+        board_pins_master::MOTOR1_CURRENT_A,
+        board_pins_master::MOTOR1_CURRENT_B,
+        kMasterXCurrentSenseAxis.gain_sign_a,
+        kMasterXCurrentSenseAxis.gain_sign_b,
+        xKnobMotorReady,
+        setMasterKnobMotorReadyForEncoder,
+        x_diagnostics_context,
+        {
+            "driver_init",
+            "driver_init_failed",
+            "driver_ready",
+            "current_sense_init",
+            "current_sense_init_failed",
+            "current_sense_ready",
+            "current_sense_skipped",
+            "motor_init",
+            "init_foc",
+            "init_foc_failed",
+        },
+    };
+    if (!initMasterMotorAxis(x_axis)) {
+        return false;
+    }
+    any_motor_ready = true;
+#else
+    (void)any_motor_ready;
+#endif
+    return true;
+}
+
+bool initMasterYAxisIfRequired(bool &any_motor_ready) {
+#if MASTER_ENABLE_Y_MOTOR_HW
+    if (!masterRunModeNeedsMotorHardware(AXIS_Y)) {
+        return true;
+    }
+    MasterMotorDiagnosticsContext y_diagnostics_context = makeMasterYDiagnosticsContext();
+    MasterMotorAxisInitContext y_axis = {
+        "Y",
+        yKnobMotor,
+        yKnobDriver,
+        yKnobCurrentSense,
+        masterYKnobSensor(),
+        kMasterYAxis,
+        kMasterYMotorFoc,
+        board_pins_master::MOTOR2_CURRENT_A,
+        board_pins_master::MOTOR2_CURRENT_B,
+        kMasterYCurrentSenseAxis.gain_sign_a,
+        kMasterYCurrentSenseAxis.gain_sign_b,
+        yKnobMotorReady,
+        setMasterYKnobMotorReadyForEncoder,
+        y_diagnostics_context,
+        {
+            "y_driver_init",
+            "y_driver_init_failed",
+            "y_driver_ready",
+            "y_current_sense_init",
+            "y_current_sense_init_failed",
+            "y_current_sense_ready",
+            "y_current_sense_skipped",
+            "y_motor_init",
+            "y_init_foc",
+            "y_init_foc_failed",
+        },
+    };
+    if (!initMasterMotorAxis(y_axis)) {
+        return false;
+    }
+    any_motor_ready = true;
+#else
+    (void)any_motor_ready;
+#endif
     return true;
 }
 #endif
@@ -292,79 +480,17 @@ bool setupMasterMotorHardware() {
 
 #if MASTER_ENABLE_X_MOTOR_HW || MASTER_ENABLE_Y_MOTOR_HW
     bool any_motor_ready = false;
-#if MASTER_ENABLE_X_MOTOR_HW
-    if (masterRunModeNeedsMotorHardware(AXIS_X)) {
-        MasterMotorDiagnosticsContext x_diagnostics_context = makeMasterXDiagnosticsContext();
-        MasterMotorAxisInitContext x_axis = {
-            "X",
-            xKnobMotor,
-            xKnobDriver,
-            xKnobCurrentSense,
-            masterKnobSensor(),
-            kMasterXAxis,
-            kMasterXMotorFoc,
-            board_pins_master::MOTOR1_CURRENT_A,
-            board_pins_master::MOTOR1_CURRENT_B,
-            kMasterXCurrentSenseAxis.gain_sign_a,
-            kMasterXCurrentSenseAxis.gain_sign_b,
-            xKnobMotorReady,
-            setMasterKnobMotorReadyForEncoder,
-            x_diagnostics_context,
-            {
-                "driver_init",
-                "driver_init_failed",
-                "driver_ready",
-                "current_sense_init",
-                "current_sense_init_failed",
-                "current_sense_ready",
-                "current_sense_skipped",
-                "motor_init",
-                "init_foc",
-                "init_foc_failed",
-            },
-        };
-        if (!initMasterMotorAxis(x_axis)) {
-            return false;
-        }
-        any_motor_ready = true;
+    Serial.printf("[Master] motor_diag init_order=%s\n",
+                  masterMotorInitOrderName());
+#if MASTER_INIT_FOC_Y_FIRST
+    if (!initMasterYAxisIfRequired(any_motor_ready) ||
+        !initMasterXAxisIfRequired(any_motor_ready)) {
+        return false;
     }
-#endif
-
-#if MASTER_ENABLE_Y_MOTOR_HW
-    if (masterRunModeNeedsMotorHardware(AXIS_Y)) {
-        MasterMotorDiagnosticsContext y_diagnostics_context = makeMasterYDiagnosticsContext();
-        MasterMotorAxisInitContext y_axis = {
-            "Y",
-            yKnobMotor,
-            yKnobDriver,
-            yKnobCurrentSense,
-            masterYKnobSensor(),
-            kMasterYAxis,
-            kMasterYMotorFoc,
-            board_pins_master::MOTOR2_CURRENT_A,
-            board_pins_master::MOTOR2_CURRENT_B,
-            kMasterYCurrentSenseAxis.gain_sign_a,
-            kMasterYCurrentSenseAxis.gain_sign_b,
-            yKnobMotorReady,
-            setMasterYKnobMotorReadyForEncoder,
-            y_diagnostics_context,
-            {
-                "y_driver_init",
-                "y_driver_init_failed",
-                "y_driver_ready",
-                "y_current_sense_init",
-                "y_current_sense_init_failed",
-                "y_current_sense_ready",
-                "y_current_sense_skipped",
-                "y_motor_init",
-                "y_init_foc",
-                "y_init_foc_failed",
-            },
-        };
-        if (!initMasterMotorAxis(y_axis)) {
-            return false;
-        }
-        any_motor_ready = true;
+#else
+    if (!initMasterXAxisIfRequired(any_motor_ready) ||
+        !initMasterYAxisIfRequired(any_motor_ready)) {
+        return false;
     }
 #endif
 
@@ -373,6 +499,7 @@ bool setupMasterMotorHardware() {
         addLocalFault(FAULT_MOTOR_OUTPUT_DISABLED);
         return false;
     }
+    enableReadyMasterMotorDriversAtZero();
     knobHardwareStatus = "ready";
     return true;
 #else
@@ -416,34 +543,7 @@ void resetMasterMotorCurrentPid() {
 // 该函数运行在控制任务内，禁止串口、无线、动态内存和阻塞等待。
 void disableMasterMotorOutputsForAdcFault() {
 #if MASTER_ENABLE_X_MOTOR_HW || MASTER_ENABLE_Y_MOTOR_HW
-    bool disabled_any = false;
-#if MASTER_ENABLE_X_MOTOR_HW
-    if (xKnobMotorReady) {
-        xKnobMotor.target = 0.0f;
-        xKnobMotor.current_sp = 0.0f;
-        xKnobMotor.PID_current_q.reset();
-        xKnobMotor.PID_current_d.reset();
-        xKnobDriver.disable();
-        xKnobMotorReady = false;
-        setMasterKnobMotorReadyForEncoder(false);
-        disabled_any = true;
-    }
-#endif
-#if MASTER_ENABLE_Y_MOTOR_HW
-    if (yKnobMotorReady) {
-        yKnobMotor.target = 0.0f;
-        yKnobMotor.current_sp = 0.0f;
-        yKnobMotor.PID_current_q.reset();
-        yKnobMotor.PID_current_d.reset();
-        yKnobDriver.disable();
-        yKnobMotorReady = false;
-        setMasterYKnobMotorReadyForEncoder(false);
-        disabled_any = true;
-    }
-#endif
-    if (disabled_any) {
-        knobHardwareStatus = "adc_dma_fault";
-    }
+    disableAllMasterMotorOutputs("adc_dma_fault");
     addLocalFault(FAULT_MOTOR_OUTPUT_DISABLED);
 #else
     addLocalFault(FAULT_MOTOR_OUTPUT_DISABLED);

@@ -6,7 +6,7 @@
 
 static constexpr MasterCenterDampingConfig kMasterXCenterDamping = {
     MASTER_ENABLE_CENTER_DAMPING != 0, // X 中心阻尼开关。
-    -1,                                // X 中心阻尼输出方向符号。
+    1,                                // X 中心阻尼输出方向符号。
     0.0005f,                           // X 中心阻尼速度增益，单位 A/(deg/s)。
     0.005f,                            // X 速度估计滤波时间常数，单位 s。
     0.0005f,                           // X 静止检测滤波时间常数，单位 s。
@@ -32,7 +32,7 @@ static constexpr MasterHapticWallConfig kMasterXHapticWall = {
     0.0f, // X 关闭纸面墙触觉时不输出墙内阻尼。
     0.0f, // X 关闭纸面墙触觉时墙内阻尼限幅为 0A。
 #endif
-    -1, // X 虚拟墙输出方向符号。
+    1, // X 虚拟墙输出方向符号。
 };
 
 static constexpr MasterHapticAxisConfig kMasterXHaptic = {

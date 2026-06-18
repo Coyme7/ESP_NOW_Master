@@ -49,10 +49,11 @@ extern "C" void app_main() {
 #endif
 
 #if MASTER_BOOT_LOG_ENABLED
-    Serial.printf("[MasterConfig] run_mode=%s run_path=%s default_app=%s x_encoder_req=%u y_encoder_req=%u x_motor_req=%u y_motor_req=%u x_encoder=%u y_encoder=%u x_motor=%u y_motor=%u force_pen=%u ffb=%u strong=%u ble=%u status_log=%u status_period=%lums timing_level=%u timing_step=%u timing_detail=%u\n",
+    Serial.printf("[MasterConfig] run_mode=%s run_path=%s default_app=%s init_order=%s x_encoder_req=%u y_encoder_req=%u x_motor_req=%u y_motor_req=%u x_encoder=%u y_encoder=%u x_motor=%u y_motor=%u force_pen=%u ffb=%u strong=%u ble=%u status_log=%u status_period=%lums timing_level=%u timing_step=%u timing_detail=%u\n",
                   masterRunModeName(),
                   masterRunPathName(),
                   masterStartupAppModeName(),
+                  MASTER_INIT_FOC_Y_FIRST ? "Y,X" : "X,Y",
                   masterRunModeNeedsEncoderHardware(AXIS_X) ? 1 : 0,
                   masterRunModeNeedsEncoderHardware(AXIS_Y) ? 1 : 0,
                   masterRunModeNeedsMotorHardware(AXIS_X) ? 1 : 0,

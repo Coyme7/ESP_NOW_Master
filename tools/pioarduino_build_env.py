@@ -5,6 +5,48 @@ from pathlib import Path
 
 Import("env")
 
+
+def configure_short_platformio_core():
+    if os.name != "nt":
+        return
+
+    default_core = Path.home() / ".platformio"
+    if not default_core.is_dir():
+        return
+
+    subst_drive = "P:"
+    subst_prefix = f"{subst_drive}\\: => "
+    mapped_target = None
+    result = subprocess.run(
+        ["subst"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.DEVNULL,
+        text=True,
+        check=False,
+    )
+    if result.returncode == 0:
+        for line in result.stdout.splitlines():
+            if line.upper().startswith(subst_prefix.upper()):
+                mapped_target = line[len(subst_prefix):].strip()
+                break
+
+    if mapped_target:
+        if Path(mapped_target).resolve() != default_core.resolve():
+            print(f"Warning: {subst_drive} is already mapped to {mapped_target}; keep existing PlatformIO core path.")
+            return
+    else:
+        subprocess.run(
+            ["subst", subst_drive, str(default_core)],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            check=False,
+        )
+
+    short_core = f"{subst_drive}/"
+    os.environ["PLATFORMIO_CORE_DIR"] = short_core
+    env["ENV"]["PLATFORMIO_CORE_DIR"] = short_core
+
+
 def link_or_copy_file(link_path, target_path):
     if link_path.exists():
         return
@@ -27,6 +69,9 @@ def link_directory(link_path, target_path):
         stderr=subprocess.DEVNULL,
         check=False,
     )
+
+
+configure_short_platformio_core()
 
 # Arduino-ESP32 3.x 的 idf_component.yml 会为 esp32s3 拉取语音、RainMaker、
 # Zigbee 等可选组件；当前业务固件只需要 Arduino core、WiFi、SPI 和 ESP-NOW。

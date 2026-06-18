@@ -6,7 +6,7 @@
 
 static constexpr MasterCenterDampingConfig kMasterYCenterDamping = {
     MASTER_ENABLE_CENTER_DAMPING != 0, // Y 中心阻尼开关。
-    -1,                                // Y 中心阻尼输出方向符号。
+    1,                                // Y 中心阻尼输出方向符号。
     0.0005f,                           // Y 中心阻尼速度增益，单位 A/(deg/s)。
     0.005f,                            // Y 速度估计滤波时间常数，单位 s。
     0.0005f,                           // Y 静止检测滤波时间常数，单位 s。
@@ -32,7 +32,7 @@ static constexpr MasterHapticWallConfig kMasterYHapticWall = {
     0.0f, // Y 关闭纸面墙触觉时不输出墙内阻尼。
     0.0f, // Y 关闭纸面墙触觉时墙内阻尼限幅为 0A。
 #endif
-    -1, // Y 虚拟墙输出方向符号。
+    1, // Y 虚拟墙输出方向符号。
 };
 
 static constexpr MasterHapticAxisConfig kMasterYHaptic = {
